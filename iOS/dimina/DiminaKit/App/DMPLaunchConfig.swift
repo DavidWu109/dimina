@@ -28,14 +28,15 @@ public struct DMPLaunchConfig {
     public var isRelaunch: Bool?
     public var appOpenUrl: String?
     
-    public init() {}
+//    public init() {}
     
     public init(openType: DMPOpenType? = nil,
                 appEntryPath: String? = nil,
                 query: [String: Any]? = nil,
                 launchAnimated: Bool? = nil,
                 isRelaunch: Bool? = nil,
-                appOpenUrl: String? = nil) {
+                appOpenUrl: String? = nil
+    ) {
         self.openType = openType
         self.appEntryPath = appEntryPath
         self.query = query

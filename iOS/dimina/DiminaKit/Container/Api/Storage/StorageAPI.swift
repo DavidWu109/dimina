@@ -12,7 +12,10 @@ import Foundation
  *
  * Handles data storage operations like setting, getting, and removing stored data
  */
-public class StorageAPI: DMPContainerApi {
+public class StorageAPI: DMPContainerApi, BridgeMethodProtocol {
+    public required init() {
+        
+    }
     
     // API method names
     private static let SET_STORAGE_SYNC = "setStorageSync"

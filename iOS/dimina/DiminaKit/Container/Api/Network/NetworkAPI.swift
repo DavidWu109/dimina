@@ -72,16 +72,14 @@ public class NetworkAPI: DMPContainerApi {
                 if let data = responseData {
                     if dataType.lowercased() == "json" {
                         do {
-                            // 尝试解析JSON
+                            // 返回已解析的 JSON 对象（和微信 wx.request 行为一致）
                             let jsonObject = try JSONSerialization.jsonObject(with: data)
                             resultMap.set("data", jsonObject)
                         } catch {
-                            // JSON解析失败，返回字符串
                             let dataString = String(data: data, encoding: .utf8) ?? ""
                             resultMap.set("data", dataString)
                         }
                     } else {
-                        // 非JSON格式，直接返回字符串
                         let dataString = String(data: data, encoding: .utf8) ?? ""
                         resultMap.set("data", dataString)
                     }

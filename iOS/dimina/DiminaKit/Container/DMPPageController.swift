@@ -23,6 +23,7 @@ public class DMPPageController: UIViewController {
     private let appConfig: DMPAppConfig
     private weak var app: DMPApp?
     private let isRoot: Bool
+    private weak var overlayView: UIView?
 
     // WebView related
     private var webview: DMPWebview
@@ -81,6 +82,10 @@ public class DMPPageController: UIViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
 
+        // 沉浸式全屏
+        edgesForExtendedLayout = .all
+        extendedLayoutIncludesOpaqueBars = true
+
         // Set title
         self.title = appConfig.appName
 
@@ -104,12 +109,40 @@ public class DMPPageController: UIViewController {
 
         // Set navigation bar style
         setupNavigationBar()
+
+        // Add host app overlay (e.g., capsule button)
+        if let overlay = app?.pageOverlayProvider?.overlayView(for: self, isRoot: isRoot) {
+            view.addSubview(overlay)
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            overlay.isUserInteractionEnabled = true
+            NSLayoutConstraint.activate([
+                overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+                overlay.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 0)
+            ])
+            self.overlayView = overlay
+        }
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // 确保 overlay 始终在最上层，避免被 UIHostingController 的 view 遮挡
+        if let overlay = overlayView {
+            view.bringSubviewToFront(overlay)
+        }
     }
 
     // View will appear
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         setupNavigationBar()
+
+        // 沉浸式：WebView 延伸到安全区域外
+        if let hostingController = hostingController {
+            hostingController.view.insetsLayoutMarginsFromSafeArea = false
+            if #available(iOS 16.4, *) {
+                hostingController.safeAreaRegions = []
+            }
+        }
     }
 
     // View did appear
@@ -122,6 +155,10 @@ public class DMPPageController: UIViewController {
     private func setupNavigationBar() {
         navigationItem.hidesBackButton = true
         navigationItem.backButtonTitle = ""
+
+        // 默认沉浸式，隐藏系统导航栏
+        // TODO: 后续根据 app-config.json 的 navigationStyle 配置决定是否显示
+        navigationController?.setNavigationBarHidden(true, animated: false)
 
         let navStyle = navigator?.getTopPageRecord()?.navStyle
         if let navStyle = navStyle {
@@ -183,6 +220,16 @@ public class DMPPageController: UIViewController {
     // Get WebView instance
     public func getWebView() -> DMPWebview {
         return webview
+    }
+
+    // Get navigator instance (for overlay close/back actions)
+    public func getNavigator() -> DMPNavigator? {
+        return navigator
+    }
+
+    // Get app instance (for overlay destroy actions)
+    public func getApp() -> DMPApp? {
+        return app
     }
 
     // Called when page is shown
@@ -251,16 +298,20 @@ public struct DMPWebViewContainer: View {
     }
 
     public var body: some View {
-        ZStack {
-            DMPWebview.WebViewRepresentable(webview: webview)
-
-            if webview.isLoading && isRoot {
-                DMPLoadingView(appName: webview.appName)
-                    .transition(.opacity)
+        if #available(iOS 14.0, *) {
+            ZStack {
+                DMPWebview.WebViewRepresentable(webview: webview)
+                
+                if webview.isLoading && isRoot {
+                    DMPLoadingView(appName: webview.appName)
+                        .transition(.opacity)
+                }
             }
-        }
-        .onChange(of: webview.isLoading) { newValue in
-            // WebView loading state changed
+            .onChange(of: webview.isLoading) { newValue in
+                // WebView loading state changed
+            }
+        } else {
+            // Fallback on earlier versions
         }
     }
 }

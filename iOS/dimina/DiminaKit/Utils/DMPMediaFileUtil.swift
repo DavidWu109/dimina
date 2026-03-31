@@ -188,11 +188,11 @@ extension DMPFileUtil {
 
 
 public class DMPImageFileModel {
-    let path:String
-    let size:Int
-    let vPath:String
+    public let path:String
+    public let size:Int
+    public let vPath:String
 
-    init(path: String, size: Int, vPath: String) {
+    public init(path: String, size: Int, vPath: String) {
         self.path = path
         self.size = size
         self.vPath = vPath
@@ -201,14 +201,14 @@ public class DMPImageFileModel {
 
 
 public class DMPVideoFileModel {
-    let path:String
-    let vPath:String
-    let size:Int
-    let duration:Int
-    let height:Int
-    let width:Int
+    public let path:String
+    public let vPath:String
+    public let size:Int
+    public let duration:Int
+    public let height:Int
+    public let width:Int
 
-    init(path: String, size: Int, vPath: String, duration: Int, height: Int, width: Int) {
+    public init(path: String, size: Int, vPath: String, duration: Int, height: Int, width: Int) {
         self.path = path
         self.vPath = vPath
         self.size = size

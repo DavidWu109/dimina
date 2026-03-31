@@ -515,13 +515,18 @@ class DMPImagePickerController: UIViewController, UINavigationControllerDelegate
     
     // 显示相册选择器
     private func showPhotoPicker() {
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.selectionLimit = maxSelectCount // 0表示不限制数量
-        configuration.filter = .images
+        if #available(iOS 14.0, *) {
+            var configuration = PHPickerConfiguration(photoLibrary: .shared())
+            configuration.selectionLimit = maxSelectCount // 0表示不限制数量
+            configuration.filter = .images
+            
+            let picker = PHPickerViewController(configuration: configuration)
+            picker.delegate = self
+            self.present(picker, animated: true, completion: nil)
+        } else {
+            // Fallback on earlier versions
+        }
         
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        self.present(picker, animated: true, completion: nil)
     }
     
     // MARK: - UIImagePickerControllerDelegate
@@ -560,6 +565,7 @@ class DMPImagePickerController: UIViewController, UINavigationControllerDelegate
     
     // MARK: - PHPickerViewControllerDelegate
     
+    @available(iOS 14.0, *)
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         // 先关闭选择器，然后处理结果
         picker.dismiss(animated: true) { [weak self] in

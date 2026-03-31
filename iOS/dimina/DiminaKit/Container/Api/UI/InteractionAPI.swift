@@ -11,7 +11,9 @@ import UIKit
 /**
  * UI - Interaction API
  */
-public class InteractionAPI: DMPContainerApi {
+public class InteractionAPI: DMPContainerApi, BridgeMethodProtocol {
+    public required init() {}
+    
     
     // API method names
     private static let SHOW_TOAST = "showToast"

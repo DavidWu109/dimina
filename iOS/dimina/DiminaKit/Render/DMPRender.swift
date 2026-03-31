@@ -105,7 +105,46 @@ public class DMPRender: DMPWebViewDelegate {
         print("✅ DMPRender: WebView (ID: \(webViewId)) ready for resource loading with path: \(currentPagePath)")
         self.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath);
         self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath);
-        
+
+        // 诊断：获取完整 DOM 结构（延迟 8 秒等数据加载）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+            webview.executeJavaScript("""
+                (function() {
+                    function getTree(el, depth) {
+                        if (!el || depth > 10) return null;
+                        var tag = el.tagName ? el.tagName.toLowerCase() : '#text';
+                        var cls = el.className || '';
+                        var text = '';
+                        if (el.nodeType === 3) text = el.textContent.trim().substring(0, 200);
+                        var children = [];
+                        if (el.childNodes) {
+                            for (var i = 0; i < el.childNodes.length && i < 30; i++) {
+                                var c = getTree(el.childNodes[i], depth + 1);
+                                if (c) children.push(c);
+                            }
+                        }
+                        var src = el.getAttribute ? (el.getAttribute('src') || '') : '';
+                        var style = el.getAttribute ? (el.getAttribute('style') || '') : '';
+                        var display = '';
+                        try { display = getComputedStyle(el).display; } catch(e) {}
+                        return {tag: tag, cls: typeof cls === 'string' ? cls.substring(0, 100) : '', text: text, src: src.substring(0, 200), style: style.substring(0, 150), display: display, children: children};
+                    }
+                    var htmlFS = getComputedStyle(document.documentElement).fontSize;
+                    var qc = document.querySelector('.question-content');
+                    var qcHTML = qc ? qc.innerHTML.substring(0, 2000) : 'NOT FOUND';
+                    // 检查 JS 错误
+                    var errors = window.__dimina_errors || [];
+                    // 检查 console.error 输出
+                    var consoleErrors = window.__console_errors || [];
+                    return JSON.stringify({htmlFontSize: htmlFS, questionContentHTML: qcHTML, errors: errors, consoleErrors: consoleErrors});
+                })()
+            """) { result, error in
+                let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_jsdiag.log")
+                let line = "\(result ?? "nil")"
+                try? line.data(using: .utf8)?.write(to: logFile)
+            }
+        }
+
         webview.poolState = .ready
         print("✅ DMPRender: WebView (ID: \(webViewId)) marked as ready")
     }
@@ -118,7 +157,18 @@ public class DMPRender: DMPWebViewDelegate {
     public func fromContainer(data: DMPMap, webViewId: Int) {
         let webview = webviewsMap[webViewId]
         let dataString = data.toJsonString()
-        
+
+        // 写文件日志
+        let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_render.log")
+        let line = "fromContainer webViewId=\(webViewId) data=\(dataString)\n"
+        if let logData = line.data(using: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: logFile) {
+                handle.seekToEndOfFile()
+                handle.write(logData)
+                handle.closeFile()
+            } else { try? logData.write(to: logFile) }
+        }
+
         DispatchQueue.main.async {
             webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(dataString))", completionHandler: nil)
         }

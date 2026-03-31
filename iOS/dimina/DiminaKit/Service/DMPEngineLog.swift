@@ -29,20 +29,24 @@ public class DMPEngineLog {
     public static func injectConsole(to context: JSContext) {
         let console = JSValue(newObjectIn: context)
         
-        let consoleLog: @convention(block) (JSValue) -> Void = { value in
-            printLog(.log, values: [value])
+        let consoleLog: @convention(block) () -> Void = {
+            let args = JSContext.currentArguments() as? [JSValue] ?? []
+            printLog(.log, values: args)
         }
-        
-        let consoleInfo: @convention(block) (JSValue) -> Void = { value in
-            printLog(.info, values: [value])
+
+        let consoleInfo: @convention(block) () -> Void = {
+            let args = JSContext.currentArguments() as? [JSValue] ?? []
+            printLog(.info, values: args)
         }
-        
-        let consoleWarn: @convention(block) (JSValue) -> Void = { value in
-            printLog(.warn, values: [value])
+
+        let consoleWarn: @convention(block) () -> Void = {
+            let args = JSContext.currentArguments() as? [JSValue] ?? []
+            printLog(.warn, values: args)
         }
-        
-        let consoleError: @convention(block) (JSValue) -> Void = { value in
-            printLog(.error, values: [value])
+
+        let consoleError: @convention(block) () -> Void = {
+            let args = JSContext.currentArguments() as? [JSValue] ?? []
+            printLog(.error, values: args)
         }
         
         console?.setObject(consoleLog, forKeyedSubscript: "log" as NSString)
@@ -56,14 +60,34 @@ public class DMPEngineLog {
     private static func printLog(_ level: LogLevel, values: [JSValue]) {
         let stringValues = values.map { formatJSValue($0) }
         let message = stringValues.joined(separator: " ")
-        
+
         switch level {
         case .log, .info:
             print("[\(level.prefix)] \(message)")
+            // 记录含关键字的 log
+            if message.contains("DEBUG") || message.contains("getCommonConfig") || message.contains("error") || message.contains("request") {
+                writeToLogFile("[\(level.prefix)] \(message)")
+            }
         case .warn:
             print("⚠️ [\(level.prefix)] \(message)")
+            writeToLogFile("⚠️ [\(level.prefix)] \(message)")
         case .error:
             print("❌ [\(level.prefix)] \(message)")
+            writeToLogFile("❌ [\(level.prefix)] \(message)")
+        }
+    }
+
+    public static func writeToLogFile(_ msg: String) {
+        let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_console.log")
+        let line = "\(Date()) \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: logFile) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            } else {
+                try? data.write(to: logFile)
+            }
         }
     }
     

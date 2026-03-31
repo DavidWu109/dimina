@@ -17,7 +17,7 @@ public class DMPAppManager {
         return instance
     }
     
-    func getApp(appIndex: Int) -> DMPApp? {
+    public func getApp(appIndex: Int) -> DMPApp? {
         return appPools[appIndex]
     }
     

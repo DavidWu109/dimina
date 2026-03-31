@@ -40,6 +40,7 @@ public class DMPEngine: NSObject {
     }
     
     public func onInitialized(_ handler: @escaping () -> Void) {
+
         jsQueue.async { [weak self] in
             guard let self = self else { return }
             if self.isThreadRunning {
@@ -48,6 +49,7 @@ public class DMPEngine: NSObject {
                 self.initCompletionHandlers.append(handler)
             }
         }
+
     }
     
     private func jsThreadMain() {
@@ -137,6 +139,18 @@ public class DMPEngine: NSObject {
         }
     }
     
+    /// 在 wx 对象上注册同步方法（如 createInnerAudioContext、getFileSystemManager）
+    public func registerWxMethod(name: String, callback: @escaping () -> [String: Any]) {
+        performOnJSThread { [weak self] in
+            guard let context = self?.jsContext else { return }
+            let wx = context.objectForKeyedSubscript("wx")
+            let block: @convention(block) () -> Any = {
+                return callback()
+            }
+            wx?.setObject(block, forKeyedSubscript: name as NSString)
+        }
+    }
+
     public func registerMethod(name: String, callback: @escaping (JSValue) -> Any?) {
         performOnJSThread {
             let callbackWrapper: @convention(block) (JSValue) -> Any? = { value in

@@ -478,16 +478,20 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         }
 
         public var body: some View {
-            ZStack {
-                WebViewRepresentable(webview: webview)
-
-                if webview.isLoading && isRoot {
-                    DMPLoadingView(appName: webview.appName)
-                        .transition(.opacity)
+            if #available(iOS 14.0, *) {
+                ZStack {
+                    WebViewRepresentable(webview: webview)
+                    
+                    if webview.isLoading && isRoot {
+                        DMPLoadingView(appName: webview.appName)
+                            .transition(.opacity)
+                    }
                 }
-            }
-            .onChange(of: webview.isLoading) { newValue in
-                print("🔴 DMPWebview: isLoading changed to \(newValue)")
+                .onChange(of: webview.isLoading) { newValue in
+                    print("🔴 DMPWebview: isLoading changed to \(newValue)")
+                }
+            } else {
+                // Fallback on earlier versions
             }
         }
     }
@@ -504,8 +508,12 @@ public struct DMPLoadingView: View {
 
     public var body: some View {
         ZStack {
-            Color.white
-                .ignoresSafeArea()
+            if #available(iOS 14.0, *) {
+                Color.white
+                    .ignoresSafeArea()
+            } else {
+                // Fallback on earlier versions
+            }
 
             VStack(spacing: 8) {
                 ZStack {

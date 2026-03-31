@@ -147,13 +147,25 @@ public class DMPFileUtil {
         return vPath
     }
 
-    public static func sandboxPathFromVPath(from vPath: String, appId: String) -> String? {
+    public static func sandboxPathFromVPath(from vPath: String, appId: String, version: String? = nil) -> String? {
         guard let components: URLComponents = URLComponents(string: vPath) else {
             return nil
         }
 
         let path: String = components.path
-        let resourceDirectory: String = DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId)
+        
+        // 如果有版本号，使用版本化的资源目录
+        let resourceDirectory: String
+        if let version = version {
+            // 使用版本化的资源目录：sandboxPath/appId/version/main
+            let appBundlePath = DMPSandboxManager.appBundlePath(appId)
+            let versionPath = (appBundlePath as NSString).appendingPathComponent(version)
+            resourceDirectory = (versionPath as NSString).appendingPathComponent("main")
+        } else {
+            // 使用临时资源目录（向后兼容）
+            resourceDirectory = DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId)
+        }
+        
         let sandboxPath: String = (resourceDirectory as NSString).appendingPathComponent(components.host ?? "") + path
         return sandboxPath
     }

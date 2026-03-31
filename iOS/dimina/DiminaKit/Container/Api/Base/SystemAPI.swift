@@ -36,47 +36,47 @@ public class SystemAPI: DMPContainerApi {
     var getSystemSetting: DMPBridgeMethodHandler = { param, env, callback in
         let result = DMPMap()
         
-        // 蓝牙开关状态
-        let bluetoothEnabled: Bool
-        if #available(iOS 10.0, *) {
-            bluetoothEnabled = CBCentralManager().state == .poweredOn
-        } else {
-            // 对于低版本 iOS，可能需要其他方式检测
-            bluetoothEnabled = false
-        }
-        
-        // 地理位置开关状态
-        let locationEnabled: Bool
-        let locationManager = CLLocationManager()
-        let status = locationManager.authorizationStatus
-
-        if #available(iOS 14.0, *) {
-            locationEnabled = status != .denied
-        } else {
-            locationEnabled = status != .restricted && status != .denied
-        }
-
-        // Wi-Fi 开关状态（iOS 无法直接获取）
-        let wifiEnabled = false
-        
-        // 设备方向
-        let deviceOrientation: String
-        let orientation = UIDevice.current.orientation
-        switch orientation {
-        case .landscapeLeft, .landscapeRight:
-            deviceOrientation = "landscape"
-        case .portrait, .portraitUpsideDown:
-            deviceOrientation = "portrait"
-        default:
-            // 默认为竖屏
-            deviceOrientation = "portrait"
-        }
-        
-        // 填充结果
-        result["bluetoothEnabled"] = bluetoothEnabled
-        result["locationEnabled"] = locationEnabled
-        result["wifiEnabled"] = wifiEnabled
-        result["deviceOrientation"] = deviceOrientation
+//        // 蓝牙开关状态
+//        let bluetoothEnabled: Bool
+//        if #available(iOS 10.0, *) {
+//            bluetoothEnabled = CBCentralManager().state == .poweredOn
+//        } else {
+//            // 对于低版本 iOS，可能需要其他方式检测
+//            bluetoothEnabled = false
+//        }
+//        
+//        // 地理位置开关状态
+//        let locationEnabled: Bool
+//        let locationManager = CLLocationManager()
+//        let status = locationManager.authorizationStatus
+//
+//        if #available(iOS 14.0, *) {
+//            locationEnabled = status != .denied
+//        } else {
+//            locationEnabled = status != .restricted && status != .denied
+//        }
+//
+//        // Wi-Fi 开关状态（iOS 无法直接获取）
+//        let wifiEnabled = false
+//        
+//        // 设备方向
+//        let deviceOrientation: String
+//        let orientation = UIDevice.current.orientation
+//        switch orientation {
+//        case .landscapeLeft, .landscapeRight:
+//            deviceOrientation = "landscape"
+//        case .portrait, .portraitUpsideDown:
+//            deviceOrientation = "portrait"
+//        default:
+//            // 默认为竖屏
+//            deviceOrientation = "portrait"
+//        }
+//        
+//        // 填充结果
+//        result["bluetoothEnabled"] = bluetoothEnabled
+//        result["locationEnabled"] = locationEnabled
+//        result["wifiEnabled"] = wifiEnabled
+//        result["deviceOrientation"] = deviceOrientation
                 
         return result
     }

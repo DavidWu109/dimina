@@ -106,6 +106,7 @@ class DMPNetwork {
                 
                 switch response.result {
                 case .success(let data):
+                    DMPEngineLog.writeToLogFile("✅ [DMPNetwork] request OK url=\(url) status=\(response.response?.statusCode ?? -1) size=\(data.count)")
                     // 提取响应头
                     let responseHeaders = response.response?.allHeaderFields as? [String: String] ?? [:]
                     
@@ -122,9 +123,11 @@ class DMPNetwork {
                 case .failure(let error):
                     // 错误处理，从AF.Error中获取错误码
                     let statusCode = error.responseCode
-                    
+
                     // 构建错误信息
                     let errorMessage = "request:fail \(error.localizedDescription)"
+                    // 调试日志
+                    DMPEngineLog.writeToLogFile("❌ [DMPNetwork] request FAIL url=\(url) status=\(statusCode ?? -1) error=\(error) responseBody=\(String(data: response.data ?? Data(), encoding: .utf8) ?? "nil")")
                     fail(errorMessage, statusCode)
                 }
                 

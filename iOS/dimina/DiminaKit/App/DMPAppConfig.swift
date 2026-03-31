@@ -8,15 +8,15 @@
 import SwiftUI
 
 public struct DMPAppConfig : Identifiable {
-    var appName: String
-    var appId: String
+    public var appName: String
+    public var appId: String
 
-    var path: String?
-    var versionCode: Int?
-    var versionName: String?
+    public var path: String?
+    public var versionCode: Int?
+    public var versionName: String?
 
-    var color: Color?
-    var icon: String?
+    public var color: Color?
+    public var icon: String?
 
     // 符合Identifiable协议的id属性
     public var id: String { appId }

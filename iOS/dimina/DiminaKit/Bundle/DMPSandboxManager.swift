@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 
-class DMPSandboxManager {
+public class DMPSandboxManager {
     private init() {}
     
     // 资源目录常量
@@ -31,7 +31,7 @@ class DMPSandboxManager {
     }()
     
     @discardableResult
-    static func initBundleDirectoryForApp(appId: String, sandbox: String? = nil) -> Bool {
+    public static func initBundleDirectoryForApp(appId: String, sandbox: String? = nil) -> Bool {
         guard let sandboxPath = _sandboxPath else { return false }
         
         let appBundlePath = (sandboxPath as NSString).appendingPathComponent(appId)
@@ -52,78 +52,86 @@ class DMPSandboxManager {
 
     // MARK: Directory
 
-    static func sandboxPath() -> String {
+    public static func sandboxPath() -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
         return sandboxPath
     }
     
     // MARK: App
 
-    static func appResourceDirectoryPath(appId: String) -> String {
+    public static func appResourceDirectoryPath(appId: String) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
         return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPResourceDirectoryName)
     }
 
-    static func appTmpResourceDirectoryPath(appId: String) -> String {
+    public static func appTmpResourceDirectoryPath(appId: String) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
         return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPTmpResourceDirectoryName)
     }
     
-    static func appStoreResourceDirectoryPath(appId: String) -> String {
+    public static func appStoreResourceDirectoryPath(appId: String) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
         return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPStoreResourceDirectoryName)
     }
     
-    static func appBundlePath(_ appId: String) -> String {
+    public static func appBundlePath(_ appId: String, versionCode: Int? = nil) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
+        if let version = versionCode {
+            return sandboxPath + "/" + appId + "/\(version)"
+        }
         return sandboxPath + "/" + appId
     }
-        
+
     // 获取 app 的 service, logic.js
-    static func appServicePath(appId: String) -> String {
-        guard let sandboxPath = _sandboxPath else { return "" }
-        return sandboxPath + "/\(appId)" + "/main/logic.js"
+    public static func appServicePath(appId: String, versionCode: Int? = nil) -> String {
+        return appBundlePath(appId, versionCode: versionCode) + "/main/logic.js"
     }
 
-    static func appSubPackagePath(appId: String, packageName: String) -> String {
-        guard let sandboxPath = _sandboxPath else { return "" }
-        return sandboxPath + "/\(appId)" + "/\(packageName)" + "/logic.js"
+    public static func appSubPackagePath(appId: String, packageName: String, versionCode: Int? = nil) -> String {
+        return appBundlePath(appId, versionCode: versionCode) + "/\(packageName)" + "/logic.js"
     }
 
     // 获取 app 的 config.json
-    static func appConfigPath(appId: String) -> String {
-        guard let sandboxPath = _sandboxPath else { return "" }
-        return sandboxPath + "/\(appId)" + "/main/app-config.json"
+    public static func appConfigPath(appId: String, versionCode: Int? = nil) -> String {
+        return appBundlePath(appId, versionCode: versionCode) + "/main/app-config.json"
     }
     
-    static func appBundleConfigPath(appId: String) -> String {
+    // 获取应用配置路径（不需要版本号，用于查找现有配置）
+    public static func appBundleConfigPath(appId: String) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
-        return sandboxPath + "/\(appId)" + "/config.json"
+        return sandboxPath + "/" + appId + "/config.json"
     }
     
     // MARK: SDK
     
-    static func sdkBundlePath() -> String {
+    public static func sdkBundlePath() -> String {
         return DMPSandboxManager.sandboxPath() + "/sdk"
     }
     
-    static func sdkMainBundlePath() -> String {
+    public static func sdkMainBundlePath() -> String {
         return DMPSandboxManager.sdkBundlePath() + "/main"
     }
     
     // 获取 sdk 的 service 目录
-    static func sdkServicePath() -> String {
+    public static func sdkServicePath() -> String {
         return DMPSandboxManager.sdkMainBundlePath() + "/assets/service.js"
     }
     
     // 获取 sdk 的 pageFrame.html
-    static func sdkPageFramePath() -> String {
+    public static func sdkPageFramePath() -> String {
         return DMPSandboxManager.sdkMainBundlePath() + "/pageFrame.html"
     }
     
     // 获取 sdk 的 config.json
-    static func sdkConfigPath() -> String {
+    public static func sdkConfigPath() -> String {
         return DMPSandboxManager.sdkBundlePath() + "/config.json"
+    }
+    
+    // MARK: Remote Bundle
+    
+    // 获取远程JSApp Bundle的路径
+    public static func remoteJsAppBundlePath() -> String {
+        return DMPSandboxManager.sandboxPath() + "/remote-jsapp-bundle"
     }
     
 }

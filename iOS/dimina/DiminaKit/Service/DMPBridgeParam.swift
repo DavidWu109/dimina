@@ -8,7 +8,7 @@
 import Foundation
 import JavaScriptCore
 
-enum DMPBridgeParamType: Int {
+public enum DMPBridgeParamType: Int {
     case object = 0
     case array = 1
     case string = 2
@@ -22,11 +22,11 @@ enum DMPBridgeParamType: Int {
 
 
 public class DMPBridgeParam {
-    var value: Any
-    var type: DMPBridgeParamType
-    var isAsync: Bool = false
+    public var value: Any
+    public var type: DMPBridgeParamType
+    public var isAsync: Bool = false
     
-    init(value: Any) {
+    public init(value: Any) {
         if value is [String: Any] {
             self.type = .object
             self.isAsync = true
@@ -49,22 +49,22 @@ public class DMPBridgeParam {
         self.value = value
     }
 
-    func getMap() -> DMPMap {
+    public func getMap() -> DMPMap {
         if type != .object {
             return DMPMap()
         }
         return DMPMap(value as! [String: Any])
     }
 
-    func getValue() -> Any {
+    public func getValue() -> Any {
         return value
     }
 
-    func getType() -> DMPBridgeParamType {
+    public func getType() -> DMPBridgeParamType {
         return type
     }
 
-    func getJSValue(context: JSContext) -> JSValue {
+    public func getJSValue(context: JSContext) -> JSValue {
         switch type {
         case .object:
             return JSValue(object: value as! [String: Any], in: context)

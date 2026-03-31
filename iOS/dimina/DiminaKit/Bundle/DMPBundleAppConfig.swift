@@ -17,6 +17,7 @@ public class DMPBundleAppConfig {
     var subPackages: [SubPackageConfig]
     var _entryPagePath: String
     var moduleMaps: [String: ModuleConfig]
+    public var window: [String: Any]?
     
     init(data: [String: Any]) {
         self.data = data
@@ -28,6 +29,7 @@ public class DMPBundleAppConfig {
         self.sitemapLocation = self.app["sitemapLocation"] as? String ?? ""
         self.subPackages = self.app["subPackages"] as? [SubPackageConfig] ?? []
         self._entryPagePath = self.app["entryPagePath"] as? String ?? ""
+        self.window = self.app["window"] as? [String: Any]
         
         // 初始化 moduleMaps
         var maps = [String: ModuleConfig]()

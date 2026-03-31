@@ -112,13 +112,23 @@ public class DMPContainer {
 
                 guard !callbackId.isEmpty else { return }
 
+                let argsDict = args.toDictionary()
                 let message = DMPMap([
                     "type": "triggerCallback",
                     "body": [
                         "id": callbackId,
-                        "args": args.toDictionary(),
+                        "args": argsDict,
                     ],
                 ])
+
+                // 调试日志
+                let messageJson = message.toJsonString()
+                let isEmptyJson = messageJson == "{}"
+                DMPEngineLog.writeToLogFile("📤 triggerCallback method=\(methodName) cbType=\(cbType) id=\(callbackId) jsonOK=\(!isEmptyJson) jsonLen=\(messageJson.count)")
+                if isEmptyJson {
+                    // JSON 序列化失败，打印原始数据帮助排查
+                    DMPEngineLog.writeToLogFile("❌ JSON serialize FAILED! argsDict types: \(argsDict.mapValues { type(of: $0) })")
+                }
 
                 DMPChannelProxy.containerToService(msg: message, app: self.getApp())
             }

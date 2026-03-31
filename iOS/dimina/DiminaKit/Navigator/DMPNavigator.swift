@@ -75,10 +75,12 @@ public class DMPNavigator: NSObject {
     /// 启动到指定页面
     @MainActor
     public func launch(to path: String, query: [String: Any]? = nil, animated: Bool = true) async {
+        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] launch path=\(path) navController=\(navigationController != nil)")
         guard let navigationController = navigationController else {
-            print("导航控制器未设置")
+            DMPEngineLog.writeToLogFile("❌ [DMPNavigator] 导航控制器未设置或已释放")
             return
         }
+        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] nav stack before push: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
 
         pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
 
@@ -101,7 +103,12 @@ public class DMPNavigator: NSObject {
 
         await app?.service?.loadSubPackage(pagePath: path)
 
-        navigationController.pushViewController(pageController, animated: animated)
+        // 使用 setViewControllers 代替 pushViewController，避免转场动画进行中 push 被 UIKit 静默忽略
+        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] adding DMPPageController via setViewControllers, nav still alive=\(self.navigationController != nil)")
+        var viewControllers = navigationController.viewControllers
+        viewControllers.append(pageController)
+        navigationController.setViewControllers(viewControllers, animated: animated)
+        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] setViewControllers done, nav stack after: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
 
         pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
     }
@@ -290,6 +297,11 @@ public class DMPNavigator: NSObject {
 
         navigationController.popToRootViewController(animated: animated)
         pageRecords.removeAll()
+    }
+
+    /// 当前页面栈深度
+    public var pageCount: Int {
+        return pageRecords.count
     }
 
     /// 获取当前页面记录
