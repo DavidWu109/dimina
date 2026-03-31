@@ -85,7 +85,7 @@ public class AppConfigManager: DisposeBagProvider {
         versionCode: String,
         engineType: EngineType? = nil
     ) -> Bool {
-        print("🔍 [AppConfigManager] 检查小程序缓存: \(appId), 版本: \(versionCode), 引擎: \(engineType?.description ?? "所有引擎")")
+        debugPrint("🔍 [AppConfigManager] 检查小程序缓存: \(appId), 版本: \(versionCode), 引擎: \(engineType?.description ?? "所有引擎")")
         return checkAppCache(appId: appId, versionCode: versionCode, engineType: engineType)
     }
     
@@ -96,7 +96,7 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - engineType: 引擎类型（nil=检查所有引擎）
     /// - Returns: 是否已缓存
     private func checkAppCache(appId: String, versionCode: String, engineType: EngineType? = nil) -> Bool {
-        print("🔍 [AppConfigManager] 开始检查缓存: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 开始检查缓存: \(appId)")
         
         if let engineType = engineType {
             // 检查指定引擎
@@ -111,18 +111,18 @@ public class AppConfigManager: DisposeBagProvider {
             // 1. 检查 Dimina 引擎缓存
             let diminaCached = checkDiminaEngineCache(appId: appId, versionCode: versionCode)
             if diminaCached {
-                print("✅ [AppConfigManager] 找到 Dimina 引擎缓存")
+                debugPrint("✅ [AppConfigManager] 找到 Dimina 引擎缓存")
                 return true
             }
             
             // 2. 检查 WebView 引擎缓存
             let webViewCached = checkWebViewEngineCache(appId: appId, versionCode: versionCode)
             if webViewCached {
-                print("✅ [AppConfigManager] 找到 WebView 引擎缓存")
+                debugPrint("✅ [AppConfigManager] 找到 WebView 引擎缓存")
                 return true
             }
             
-            print("❌ [AppConfigManager] 未找到任何引擎缓存")
+            debugPrint("❌ [AppConfigManager] 未找到任何引擎缓存")
             return false
         }
     }
@@ -133,7 +133,7 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号
     /// - Returns: 是否已缓存
     private func checkDiminaEngineCache(appId: String, versionCode: String) -> Bool {
-        print("🔍 [AppConfigManager] 检查 Dimina 引擎缓存...")
+        debugPrint("🔍 [AppConfigManager] 检查 Dimina 引擎缓存...")
         return checkEngineCache(appId: appId, versionCode: versionCode, engineType: .dimina)
     }
     
@@ -143,7 +143,7 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号
     /// - Returns: 是否已缓存
     private func checkWebViewEngineCache(appId: String, versionCode: String) -> Bool {
-        print("🔍 [AppConfigManager] 检查 WebView 引擎缓存...")
+        debugPrint("🔍 [AppConfigManager] 检查 WebView 引擎缓存...")
         return checkEngineCache(appId: appId, versionCode: versionCode, engineType: .webview)
     }
     
@@ -155,19 +155,22 @@ public class AppConfigManager: DisposeBagProvider {
     /// - Returns: 是否已缓存
     private func checkEngineCache(appId: String, versionCode: String, engineType: EngineType) -> Bool {
         let localPath = getEngineLocalPath(appId: appId, versionCode: versionCode, engineType: engineType)
-        guard FileManager.default.fileExists(atPath: localPath.path) else { 
-            print("❌ [AppConfigManager] 引擎路径不存在: \(localPath.path)")
-            return false 
+        guard FileManager.default.fileExists(atPath: localPath.path) else {
+            debugPrint("❌ [AppConfigManager] 引擎路径不存在: \(localPath.path)")
+            return false
         }
-        
-        let appPath = localPath.appendingPathComponent(appId)
-        let indexPath = appPath.appendingPathComponent("index.html")
+
+        // 检查 index.html（可能在根目录或 h5 子目录）
+        let indexPath = localPath.appendingPathComponent("index.html")
+        let h5IndexPath = localPath.appendingPathComponent("h5/index.html")
         let hasIndex = FileManager.default.fileExists(atPath: indexPath.path)
-        
-        print("🔍 [AppConfigManager] 检查 \(engineType.description) 路径: \(appPath.path)")
-        print("🔍 [AppConfigManager] 检查 index.html: \(indexPath.path) -> \(hasIndex)")
-        
-        return hasIndex
+        let hasH5Index = FileManager.default.fileExists(atPath: h5IndexPath.path)
+
+        debugPrint("🔍 [AppConfigManager] 检查 \(engineType.description) 路径: \(localPath.path)")
+        debugPrint("🔍 [AppConfigManager] 检查 index.html: \(indexPath.path) -> \(hasIndex)")
+        debugPrint("🔍 [AppConfigManager] 检查 h5/index.html: \(h5IndexPath.path) -> \(hasH5Index)")
+
+        return hasIndex || hasH5Index
     }
     
     /// 获取引擎本地路径
@@ -231,7 +234,7 @@ public class AppConfigManager: DisposeBagProvider {
             }
             return nil
         } catch {
-            print("获取小程序下载信息失败: \(error)")
+            debugPrint("获取小程序下载信息失败: \(error)")
             return nil
         }
     }
@@ -297,18 +300,18 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号（必需，用于路径构建）
     /// - Returns: Dimina Engine 的本地路径
     public func getDiminaLocalPath(appId: String, versionCode: String? = nil) -> URL {
-        print("🔍 [AppConfigManager] 获取 Dimina 本地路径: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 获取 Dimina 本地路径: \(appId)")
         if let versionCode = versionCode {
-            print("📋 [AppConfigManager] 版本号: \(versionCode)")
+            debugPrint("📋 [AppConfigManager] 版本号: \(versionCode)")
         }
         
         // 获取应用的 Documents 目录
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: "")
-        print("📁 [AppConfigManager] Documents 目录: \(documentsPath.path)")
+        debugPrint("📁 [AppConfigManager] Documents 目录: \(documentsPath.path)")
         
         // 构建 Dimina 目录路径
         let diminaPath = documentsPath.appendingPathComponent("Dimina")
-        print("🗂️ [AppConfigManager] Dimina 根目录: \(diminaPath.path)")
+        debugPrint("🗂️ [AppConfigManager] Dimina 根目录: \(diminaPath.path)")
         
         // 使用 appId 和版本号构建路径
         let appPath = diminaPath.appendingPathComponent(appId)
@@ -317,13 +320,13 @@ public class AppConfigManager: DisposeBagProvider {
         if let versionCode = versionCode, !versionCode.isEmpty {
             // 如果有版本号，创建版本号子文件夹
             finalPath = appPath.appendingPathComponent(versionCode)
-            print("📋 [AppConfigManager] 最终路径（包含版本号）: \(finalPath.path)")
-            print("💡 [AppConfigManager] 注意：Dimina 资源包解压到版本号子文件夹中")
+            debugPrint("📋 [AppConfigManager] 最终路径（包含版本号）: \(finalPath.path)")
+            debugPrint("💡 [AppConfigManager] 注意：Dimina 资源包解压到版本号子文件夹中")
         } else {
             // 如果没有版本号，直接使用 appId 目录
             finalPath = appPath
-            print("📋 [AppConfigManager] 最终路径（无版本号）: \(finalPath.path)")
-            print("💡 [AppConfigManager] 注意：Dimina 资源包直接解压到 appId 目录，不创建版本号子文件夹")
+            debugPrint("📋 [AppConfigManager] 最终路径（无版本号）: \(finalPath.path)")
+            debugPrint("💡 [AppConfigManager] 注意：Dimina 资源包直接解压到 appId 目录，不创建版本号子文件夹")
         }
         
         return finalPath
@@ -335,17 +338,17 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号（可选）
     /// - Returns: 是否已缓存
     public func isDiminaAppCached(appId: String, versionCode: String? = nil) -> Bool {
-        print("🔍 [AppConfigManager] 检查 Dimina 小程序缓存: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 检查 Dimina 小程序缓存: \(appId)")
         
         let localPath = getDiminaLocalPath(appId: appId, versionCode: versionCode)
         
         // 检查目录是否存在
         guard FileManager.default.fileExists(atPath: localPath.path) else {
-            print("❌ [AppConfigManager] Dimina 小程序目录不存在: \(localPath.path)")
+            debugPrint("❌ [AppConfigManager] Dimina 小程序目录不存在: \(localPath.path)")
             return false
         }
         
-        print("✅ [AppConfigManager] Dimina 小程序目录存在，检查必要文件...")
+        debugPrint("✅ [AppConfigManager] Dimina 小程序目录存在，检查必要文件...")
         
         // 检查 Dimina 引擎特有的目录结构（localPath 已包含 appId/version）
         let mainLogicPath = localPath.appendingPathComponent("main/logic.js")
@@ -354,7 +357,7 @@ public class AppConfigManager: DisposeBagProvider {
         let hasMainLogic = FileManager.default.fileExists(atPath: mainLogicPath.path)
 
         if hasMainLogic {
-            print("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
+            debugPrint("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
         }
 
         // 检查是否包含必要的文件（兼容传统结构）
@@ -365,18 +368,18 @@ public class AppConfigManager: DisposeBagProvider {
         let hasRootIndex = FileManager.default.fileExists(atPath: indexPath2.path)
 
         if hasH5Index {
-            print("✅ [AppConfigManager] 找到 h5/index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 h5/index.html 文件")
         }
         if hasRootIndex {
-            print("✅ [AppConfigManager] 找到 index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 index.html 文件")
         }
 
         // Dimina 引擎优先检查特有文件，如果没有则检查传统文件
         let isCached = hasMainLogic || hasH5Index || hasRootIndex
         if isCached {
-            print("✅ [AppConfigManager] Dimina 小程序已缓存: \(appId)")
+            debugPrint("✅ [AppConfigManager] Dimina 小程序已缓存: \(appId)")
         } else {
-            print("❌ [AppConfigManager] Dimina 小程序未缓存，缺少必要的文件")
+            debugPrint("❌ [AppConfigManager] Dimina 小程序未缓存，缺少必要的文件")
         }
 
         return isCached
@@ -388,18 +391,18 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号（可选）
     /// - Returns: 是否已缓存
     public func isDiminaDevAppCached(appId: String, versionCode: String? = nil) -> Bool {
-        print("🔍 [AppConfigManager] 检查 Dimina dev 版本小程序缓存: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 检查 Dimina dev 版本小程序缓存: \(appId)")
         
         // 对于 dev 环境，检查 Dimina 引擎特有的文件结构
         let localPath = getDiminaLocalPath(appId: appId, versionCode: versionCode)
         
         // 检查目录是否存在
         guard FileManager.default.fileExists(atPath: localPath.path) else {
-            print("❌ [AppConfigManager] Dimina dev 小程序目录不存在: \(localPath.path)")
+            debugPrint("❌ [AppConfigManager] Dimina dev 小程序目录不存在: \(localPath.path)")
             return false
         }
         
-        print("✅ [AppConfigManager] Dimina dev 小程序目录存在，检查必要文件...")
+        debugPrint("✅ [AppConfigManager] Dimina dev 小程序目录存在，检查必要文件...")
         
         // 检查 Dimina 引擎特有的目录结构（localPath 已包含 appId/version）
         let mainLogicPath = localPath.appendingPathComponent("main/logic.js")
@@ -410,10 +413,10 @@ public class AppConfigManager: DisposeBagProvider {
         let hasDevConfig = FileManager.default.fileExists(atPath: devConfigPath.path)
         
         if hasMainLogic {
-            print("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
+            debugPrint("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
         }
         if hasDevConfig {
-            print("✅ [AppConfigManager] 找到 dev 配置文件: \(devConfigPath.path)")
+            debugPrint("✅ [AppConfigManager] 找到 dev 配置文件: \(devConfigPath.path)")
         }
         
         // 检查是否包含必要的文件（兼容传统结构）
@@ -424,18 +427,18 @@ public class AppConfigManager: DisposeBagProvider {
         let hasRootIndex = FileManager.default.fileExists(atPath: indexPath2.path)
         
         if hasH5Index {
-            print("✅ [AppConfigManager] 找到 h5/index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 h5/index.html 文件")
         }
         if hasRootIndex {
-            print("✅ [AppConfigManager] 找到 index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 index.html 文件")
         }
         
         // Dimina dev 版本优先检查特有文件，包括 dev 配置
         let isCached = hasMainLogic || hasDevConfig || hasH5Index || hasRootIndex
         if isCached {
-            print("✅ [AppConfigManager] Dimina dev 版本小程序已缓存: \(appId)")
+            debugPrint("✅ [AppConfigManager] Dimina dev 版本小程序已缓存: \(appId)")
         } else {
-            print("❌ [AppConfigManager] Dimina dev 版本小程序未缓存，缺少必要的文件")
+            debugPrint("❌ [AppConfigManager] Dimina dev 版本小程序未缓存，缺少必要的文件")
         }
         
         return isCached
@@ -452,9 +455,9 @@ public class AppConfigManager: DisposeBagProvider {
                                               versionCode: String? = nil,
                                               deviceId: String,
                                               appContainerId: String) -> Bool {
-        print("🔍 [AppConfigManager] 检查模拟器路径下的 Dimina 小程序缓存: \(appId)")
-        print("📱 [AppConfigManager] 设备ID: \(deviceId)")
-        print("📱 [AppConfigManager] 应用容器ID: \(appContainerId)")
+        debugPrint("🔍 [AppConfigManager] 检查模拟器路径下的 Dimina 小程序缓存: \(appId)")
+        debugPrint("📱 [AppConfigManager] 设备ID: \(deviceId)")
+        debugPrint("📱 [AppConfigManager] 应用容器ID: \(appContainerId)")
         
         // 构建模拟器路径
         let simulatorPath = "/Users/david/Library/Developer/CoreSimulator/Devices/\(deviceId)/data/Containers/Data/Application/\(appContainerId)/Documents/Dimina"
@@ -472,15 +475,15 @@ public class AppConfigManager: DisposeBagProvider {
             localPath = appPath
         }
         
-        print("📁 [AppConfigManager] 模拟器路径: \(localPath.path)")
+        debugPrint("📁 [AppConfigManager] 模拟器路径: \(localPath.path)")
         
         // 检查目录是否存在
         guard FileManager.default.fileExists(atPath: localPath.path) else {
-            print("❌ [AppConfigManager] 模拟器路径下的 Dimina 小程序目录不存在")
+            debugPrint("❌ [AppConfigManager] 模拟器路径下的 Dimina 小程序目录不存在")
             return false
         }
         
-        print("✅ [AppConfigManager] 模拟器路径下的 Dimina 小程序目录存在，检查必要文件...")
+        debugPrint("✅ [AppConfigManager] 模拟器路径下的 Dimina 小程序目录存在，检查必要文件...")
         
         // 检查 Dimina 引擎特有的目录结构（localPath 已包含 appId/version）
         let mainLogicPath = localPath.appendingPathComponent("main/logic.js")
@@ -489,7 +492,7 @@ public class AppConfigManager: DisposeBagProvider {
         let hasMainLogic = FileManager.default.fileExists(atPath: mainLogicPath.path)
 
         if hasMainLogic {
-            print("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
+            debugPrint("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
         }
 
         // 检查是否包含必要的文件（兼容传统结构）
@@ -500,18 +503,18 @@ public class AppConfigManager: DisposeBagProvider {
         let hasRootIndex = FileManager.default.fileExists(atPath: indexPath2.path)
 
         if hasH5Index {
-            print("✅ [AppConfigManager] 找到 h5/index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 h5/index.html 文件")
         }
         if hasRootIndex {
-            print("✅ [AppConfigManager] 找到 index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 index.html 文件")
         }
 
         // Dimina 引擎优先检查特有文件，如果没有则检查传统文件
         let isCached = hasMainLogic || hasH5Index || hasRootIndex
         if isCached {
-            print("✅ [AppConfigManager] 模拟器路径下的 Dimina 小程序已缓存: \(appId)")
+            debugPrint("✅ [AppConfigManager] 模拟器路径下的 Dimina 小程序已缓存: \(appId)")
         } else {
-            print("❌ [AppConfigManager] 模拟器路径下的 Dimina 小程序未缓存，缺少必要的文件")
+            debugPrint("❌ [AppConfigManager] 模拟器路径下的 Dimina 小程序未缓存，缺少必要的文件")
         }
 
         return isCached
@@ -521,15 +524,15 @@ public class AppConfigManager: DisposeBagProvider {
     /// - Parameter localPath: 本地路径
     /// - Returns: 是否已缓存
     public func isDiminaAppCachedAtPath(_ localPath: URL) -> Bool {
-        print("🔍 [AppConfigManager] 检查指定路径的 Dimina 小程序缓存: \(localPath.path)")
+        debugPrint("🔍 [AppConfigManager] 检查指定路径的 Dimina 小程序缓存: \(localPath.path)")
         
         // 检查目录是否存在
         guard FileManager.default.fileExists(atPath: localPath.path) else {
-            print("❌ [AppConfigManager] 指定路径的目录不存在")
+            debugPrint("❌ [AppConfigManager] 指定路径的目录不存在")
             return false
         }
         
-        print("✅ [AppConfigManager] 指定路径的目录存在，检查必要文件...")
+        debugPrint("✅ [AppConfigManager] 指定路径的目录存在，检查必要文件...")
         
         // 检查 Dimina 引擎特有的目录结构（localPath 已指向最终目录）
         let mainLogicPath = localPath.appendingPathComponent("main/logic.js")
@@ -538,7 +541,7 @@ public class AppConfigManager: DisposeBagProvider {
         let hasMainLogic = FileManager.default.fileExists(atPath: mainLogicPath.path)
         
         if hasMainLogic {
-            print("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
+            debugPrint("✅ [AppConfigManager] 找到 Dimina 引擎特有文件: \(mainLogicPath.path)")
         }
         
         // 检查是否包含必要的文件（兼容传统结构）
@@ -549,18 +552,18 @@ public class AppConfigManager: DisposeBagProvider {
         let hasRootIndex = FileManager.default.fileExists(atPath: indexPath2.path)
         
         if hasH5Index {
-            print("✅ [AppConfigManager] 找到 h5/index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 h5/index.html 文件")
         }
         if hasRootIndex {
-            print("✅ [AppConfigManager] 找到 index.html 文件")
+            debugPrint("✅ [AppConfigManager] 找到 index.html 文件")
         }
         
         // Dimina 引擎优先检查特有文件，如果没有则检查传统文件
         let isCached = hasMainLogic || hasH5Index || hasRootIndex
         if isCached {
-            print("✅ [AppConfigManager] 指定路径的 Dimina 小程序已缓存")
+            debugPrint("✅ [AppConfigManager] 指定路径的 Dimina 小程序已缓存")
         } else {
-            print("❌ [AppConfigManager] 指定路径的 Dimina 小程序未缓存，缺少必要的文件")
+            debugPrint("❌ [AppConfigManager] 指定路径的 Dimina 小程序未缓存，缺少必要的文件")
         }
         
         return isCached
@@ -574,17 +577,17 @@ public class AppConfigManager: DisposeBagProvider {
     /// - Returns: 是否下载成功
     @discardableResult
     public func downloadAndExtractDiminaApp(appId: String, versionCode: String? = nil, downloadUrl: String) async throws -> Bool {
-        print("🚀 [AppConfigManager] 开始下载 Dimina 小程序: \(appId)")
+        debugPrint("🚀 [AppConfigManager] 开始下载 Dimina 小程序: \(appId)")
         if let versionCode = versionCode {
-            print("📋 [AppConfigManager] 版本号: \(versionCode)")
+            debugPrint("📋 [AppConfigManager] 版本号: \(versionCode)")
         }
-        print("🔗 [AppConfigManager] 下载地址: \(downloadUrl)")
+        debugPrint("🔗 [AppConfigManager] 下载地址: \(downloadUrl)")
         
         let localPath = getDiminaLocalPath(appId: appId, versionCode: versionCode)
         
         // 检查目标目录是否已存在且有效
         if FileManager.default.fileExists(atPath: localPath.path) {
-            print("📁 [AppConfigManager] 目标目录已存在，检查是否有效...")
+            debugPrint("📁 [AppConfigManager] 目标目录已存在，检查是否有效...")
             
             // 检查是否包含必要的文件
             let indexPath = localPath.appendingPathComponent("h5/index.html")
@@ -594,18 +597,18 @@ public class AppConfigManager: DisposeBagProvider {
             let hasRootIndex = FileManager.default.fileExists(atPath: indexPath2.path)
             
             if hasH5Index || hasRootIndex {
-                print("✅ [AppConfigManager] 目标目录已存在且有效，包含必要的 index.html 文件")
-                print("📁 [AppConfigManager] 跳过下载，直接使用现有文件")
+                debugPrint("✅ [AppConfigManager] 目标目录已存在且有效，包含必要的 index.html 文件")
+                debugPrint("📁 [AppConfigManager] 跳过下载，直接使用现有文件")
                 return true
             } else {
-                print("⚠️ [AppConfigManager] 目标目录存在但无效，将清理后重新下载")
+                debugPrint("⚠️ [AppConfigManager] 目标目录存在但无效，将清理后重新下载")
                 
                 // 清理无效的目录
                 do {
                     try FileManager.default.removeItem(at: localPath)
-                    print("🧹 [AppConfigManager] 无效目录清理成功")
+                    debugPrint("🧹 [AppConfigManager] 无效目录清理成功")
                 } catch {
-                    print("❌ [AppConfigManager] 清理无效目录失败: \(error.localizedDescription)")
+                    debugPrint("❌ [AppConfigManager] 清理无效目录失败: \(error.localizedDescription)")
                     throw error
                 }
             }
@@ -614,19 +617,19 @@ public class AppConfigManager: DisposeBagProvider {
         // 确保目录存在
         do {
             try FileManager.default.createDirectory(at: localPath, withIntermediateDirectories: true, attributes: nil)
-            print("✅ [AppConfigManager] 目标目录创建成功: \(localPath.path)")
+            debugPrint("✅ [AppConfigManager] 目标目录创建成功: \(localPath.path)")
         } catch {
-            print("❌ [AppConfigManager] 创建目标目录失败: \(error.localizedDescription)")
+            debugPrint("❌ [AppConfigManager] 创建目标目录失败: \(error.localizedDescription)")
             throw error
         }
         
-        print("⏳ [AppConfigManager] 开始调用 DownloadManager 进行下载...")
+        debugPrint("⏳ [AppConfigManager] 开始调用 DownloadManager 进行下载...")
         
         // 检查下载URL是否为 zip 格式
         let isZipFormat = downloadUrl.lowercased().contains(".zip") || downloadUrl.lowercased().contains("zip")
         
         if isZipFormat {
-            print("📦 [AppConfigManager] 检测到 ZIP 格式，使用 Dimina 引擎处理")
+            debugPrint("📦 [AppConfigManager] 检测到 ZIP 格式，使用 Dimina 引擎处理")
             
             // 使用 DiminaEngineManager 下载并解压 ZIP 文件
             do {
@@ -636,18 +639,18 @@ public class AppConfigManager: DisposeBagProvider {
                 )
                 
                 if success {
-                    print("✅ [AppConfigManager] Dimina 小程序 ZIP 文件下载并解压成功: \(appId)")
-                    print("📁 [AppConfigManager] 文件位置: \(localPath.path)")
+                    debugPrint("✅ [AppConfigManager] Dimina 小程序 ZIP 文件下载并解压成功: \(appId)")
+                    debugPrint("📁 [AppConfigManager] 文件位置: \(localPath.path)")
                 } else {
-                    print("❌ [AppConfigManager] Dimina 小程序 ZIP 文件下载失败: \(appId)")
+                    debugPrint("❌ [AppConfigManager] Dimina 小程序 ZIP 文件下载失败: \(appId)")
                 }
                 return success
             } catch {
-                print("❌ [AppConfigManager] Dimina 小程序 ZIP 文件下载异常: \(error.localizedDescription)")
+                debugPrint("❌ [AppConfigManager] Dimina 小程序 ZIP 文件下载异常: \(error.localizedDescription)")
                 throw error
             }
         } else {
-            print("📦 [AppConfigManager] 非 ZIP 格式，尝试使用 DownloadManager")
+            debugPrint("📦 [AppConfigManager] 非 ZIP 格式，尝试使用 DownloadManager")
             
             // 使用 DownloadManager 下载并解压
             // 注意：这里假设 DownloadManager 支持自定义路径
@@ -655,17 +658,17 @@ public class AppConfigManager: DisposeBagProvider {
                 // 如果 DownloadManager 支持自定义路径，直接使用
                 let success = result != nil
                 if success {
-                    print("✅ [AppConfigManager] Dimina 小程序下载并解压成功: \(appId)")
-                    print("📁 [AppConfigManager] 文件位置: \(localPath.path)")
+                    debugPrint("✅ [AppConfigManager] Dimina 小程序下载并解压成功: \(appId)")
+                    debugPrint("📁 [AppConfigManager] 文件位置: \(localPath.path)")
                 } else {
-                    print("❌ [AppConfigManager] Dimina 小程序下载失败: \(appId)")
+                    debugPrint("❌ [AppConfigManager] Dimina 小程序下载失败: \(appId)")
                 }
                 return success
             } else {
                 // 如果不支持，则使用默认路径，然后复制到 Dimina 目录
                 // 这里需要根据实际的 DownloadManager 实现来调整
-                print("⚠️ [AppConfigManager] DownloadManager 不支持自定义路径，使用默认实现")
-                print("💡 [AppConfigManager] 建议: 需要实现自定义路径的下载逻辑")
+                debugPrint("⚠️ [AppConfigManager] DownloadManager 不支持自定义路径，使用默认实现")
+                debugPrint("💡 [AppConfigManager] 建议: 需要实现自定义路径的下载逻辑")
                 return false
             }
         }
@@ -695,23 +698,23 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号（可选）
     /// - Returns: 应用配置对象
     public func getDiminaAppConfig(appId: String, versionCode: String? = nil) -> DMPBundleAppConfig? {
-        print("🔍 [AppConfigManager] 读取 Dimina 小程序配置: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 读取 Dimina 小程序配置: \(appId)")
         
         let localPath = getDiminaLocalPath(appId: appId, versionCode: versionCode)
         
         // 检查目录是否存在
         guard FileManager.default.fileExists(atPath: localPath.path) else {
-            print("❌ [AppConfigManager] Dimina 小程序目录不存在，无法读取配置")
+            debugPrint("❌ [AppConfigManager] Dimina 小程序目录不存在，无法读取配置")
             return nil
         }
         
         // 构建 app-config.json 的路径
         let appConfigPath = localPath.appendingPathComponent("main/app-config.json")
-        print("📁 [AppConfigManager] 配置文件路径: \(appConfigPath.path)")
+        debugPrint("📁 [AppConfigManager] 配置文件路径: \(appConfigPath.path)")
         
         // 检查配置文件是否存在
         guard FileManager.default.fileExists(atPath: appConfigPath.path) else {
-            print("❌ [AppConfigManager] app-config.json 文件不存在")
+            debugPrint("❌ [AppConfigManager] app-config.json 文件不存在")
             return nil
         }
         
@@ -721,17 +724,17 @@ public class AppConfigManager: DisposeBagProvider {
             let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
             
             guard let appConfig = DMPBundleAppConfig.fromJsonString(json: jsonString) else {
-                print("❌ [AppConfigManager] 解析 app-config.json 失败")
+                debugPrint("❌ [AppConfigManager] 解析 app-config.json 失败")
                 return nil
             }
             
-            print("✅ [AppConfigManager] 成功读取 Dimina 小程序配置")
-            print("📋 [AppConfigManager] 入口页面: \(appConfig.entryPagePath)")
-            print("📋 [AppConfigManager] 页面列表: \(appConfig.pages ?? [])")
+            debugPrint("✅ [AppConfigManager] 成功读取 Dimina 小程序配置")
+            debugPrint("📋 [AppConfigManager] 入口页面: \(appConfig.entryPagePath)")
+            debugPrint("📋 [AppConfigManager] 页面列表: \(appConfig.pages ?? [])")
             
             return appConfig
         } catch {
-            print("❌ [AppConfigManager] 读取 app-config.json 失败: \(error.localizedDescription)")
+            debugPrint("❌ [AppConfigManager] 读取 app-config.json 失败: \(error.localizedDescription)")
             return nil
         }
     }
@@ -742,19 +745,19 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号（可选）
     /// - Returns: 入口页面路径
     public func getDiminaEntryPagePath(appId: String, versionCode: String? = nil) -> String? {
-        print("🔍 [AppConfigManager] 获取 Dimina 小程序入口页面路径: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 获取 Dimina 小程序入口页面路径: \(appId)")
         
         guard let appConfig = getDiminaAppConfig(appId: appId, versionCode: versionCode) else {
-            print("❌ [AppConfigManager] 无法获取应用配置，无法确定入口页面")
+            debugPrint("❌ [AppConfigManager] 无法获取应用配置，无法确定入口页面")
             return nil
         }
         
         let entryPagePath = appConfig.entryPagePath
         if !entryPagePath.isEmpty {
-            print("✅ [AppConfigManager] 找到入口页面路径: \(entryPagePath)")
+            debugPrint("✅ [AppConfigManager] 找到入口页面路径: \(entryPagePath)")
             return entryPagePath
         } else {
-            print("❌ [AppConfigManager] 入口页面路径为空")
+            debugPrint("❌ [AppConfigManager] 入口页面路径为空")
             return nil
         }
     }
@@ -765,10 +768,10 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - versionCode: 版本号（可选）
     /// - Returns: 完整的加载路径
     public func getDiminaLoadPath(appId: String, versionCode: String? = nil) -> URL? {
-        print("🔍 [AppConfigManager] 获取 Dimina 小程序加载路径: \(appId)")
+        debugPrint("🔍 [AppConfigManager] 获取 Dimina 小程序加载路径: \(appId)")
         
         guard let entryPagePath = getDiminaEntryPagePath(appId: appId, versionCode: versionCode) else {
-            print("❌ [AppConfigManager] 无法获取入口页面路径")
+            debugPrint("❌ [AppConfigManager] 无法获取入口页面路径")
             return nil
         }
         
@@ -779,14 +782,14 @@ public class AppConfigManager: DisposeBagProvider {
         let htmlFileName = entryPagePath.hasSuffix(".html") ? entryPagePath : "\(entryPagePath).html"
         let fullLoadPath = localPath.appendingPathComponent(htmlFileName)
         
-        print("📁 [AppConfigManager] 完整加载路径: \(fullLoadPath.path)")
+        debugPrint("📁 [AppConfigManager] 完整加载路径: \(fullLoadPath.path)")
         
         // 检查文件是否存在
         if FileManager.default.fileExists(atPath: fullLoadPath.path) {
-            print("✅ [AppConfigManager] 加载路径文件存在")
+            debugPrint("✅ [AppConfigManager] 加载路径文件存在")
             return fullLoadPath
         } else {
-            print("❌ [AppConfigManager] 加载路径文件不存在")
+            debugPrint("❌ [AppConfigManager] 加载路径文件不存在")
             return nil
         }
     }
@@ -807,7 +810,7 @@ public class AppConfigManager: DisposeBagProvider {
             }
             return true
         } catch {
-            print("清理 Dimina 缓存失败: \(error)")
+            debugPrint("清理 Dimina 缓存失败: \(error)")
             return false
         }
     }
@@ -828,7 +831,7 @@ public class AppConfigManager: DisposeBagProvider {
             
             for url in contents {
                 let appName = url.lastPathComponent
-                print("📱 [AppConfigManager] 检查应用目录: \(appName)")
+                debugPrint("📱 [AppConfigManager] 检查应用目录: \(appName)")
                 
                 // 检查是否直接包含小程序文件（无版本号结构）
                 let indexPath = url.appendingPathComponent("h5/index.html")
@@ -840,7 +843,7 @@ public class AppConfigManager: DisposeBagProvider {
                 let hasMainLogic = FileManager.default.fileExists(atPath: diminaAppPath.path)
                 
                 if hasH5Index || hasRootIndex || hasMainLogic {
-                    print("✅ [AppConfigManager] 发现缓存的小程序（无版本号）: \(appName)")
+                    debugPrint("✅ [AppConfigManager] 发现缓存的小程序（无版本号）: \(appName)")
                     cachedApps.append(appName)
                 } else {
                     // 检查是否包含版本号子目录
@@ -857,7 +860,7 @@ public class AppConfigManager: DisposeBagProvider {
                             let versionHasMainLogic = FileManager.default.fileExists(atPath: versionDiminaAppPath.path)
                             
                             if versionHasH5Index || versionHasRootIndex || versionHasMainLogic {
-                                print("✅ [AppConfigManager] 发现缓存的小程序（版本号 \(versionName)）: \(appName)")
+                                debugPrint("✅ [AppConfigManager] 发现缓存的小程序（版本号 \(versionName)）: \(appName)")
                                 if !cachedApps.contains(appName) {
                                     cachedApps.append(appName)
                                 }
@@ -865,14 +868,14 @@ public class AppConfigManager: DisposeBagProvider {
                             }
                         }
                     } catch {
-                        print("⚠️ [AppConfigManager] 检查版本号目录失败: \(error)")
+                        debugPrint("⚠️ [AppConfigManager] 检查版本号目录失败: \(error)")
                     }
                 }
             }
             
             return cachedApps
         } catch {
-            print("获取已缓存的 Dimina 小程序失败: \(error)")
+            debugPrint("获取已缓存的 Dimina 小程序失败: \(error)")
             return []
         }
     }

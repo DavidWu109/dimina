@@ -59,22 +59,25 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             path = DMPSandboxManager.sdkMainBundlePath() + url.path
             pathType = "SDK主Bundle路径"
         } else {
-            // 应用资源：URL path 可能以 /appId/ 开头（如 /echonxINllZW44kgtMW9/main/app.css）
-            // 也可能不带 appId（如 /main/app.css）
-            let resolvedVersion = versionCode ?? DiminaURLSchemeHandler.appVersionMap[appId]
+            // 应用资源路径解析
+            // URL path 格式: /<appId>/main/app.css 或 /main/app.css
             let urlPath = url.path
-            if urlPath.hasPrefix("/\(appId)/") {
-                // URL 已包含 appId，只需加 versionCode
-                if let version = resolvedVersion {
-                    path = DMPSandboxManager.sandboxPath() + "/\(appId)/\(version)" + urlPath.dropFirst(appId.count + 1)
-                } else {
-                    path = DMPSandboxManager.sandboxPath() + urlPath
-                }
-            } else {
-                // URL 不含 appId，用 appBundlePath
-                path = DMPSandboxManager.appBundlePath(appId, versionCode: resolvedVersion) + urlPath
+            let pathComponents = urlPath.split(separator: "/", maxSplits: 2)
+
+            var resolvedAppId = appId
+            var resourcePath = urlPath
+
+            // URL 第一段如果在 appVersionMap 中，就是 appId，剥离它
+            if pathComponents.count >= 2,
+               let firstComponent = pathComponents.first.map(String.init),
+               DiminaURLSchemeHandler.appVersionMap[firstComponent] != nil {
+                resolvedAppId = firstComponent
+                resourcePath = "/" + pathComponents.dropFirst().joined(separator: "/")
             }
-            pathType = "应用Bundle路径(appId=\(appId), version=\(resolvedVersion ?? -1))"
+
+            let resolvedVersion = DiminaURLSchemeHandler.appVersionMap[resolvedAppId] ?? versionCode
+            path = DMPSandboxManager.appBundlePath(resolvedAppId, versionCode: resolvedVersion) + resourcePath
+            pathType = "应用Bundle路径(appId=\(resolvedAppId), version=\(resolvedVersion ?? -1))"
         }
         
         print("  🔄 路径转换过程:")
