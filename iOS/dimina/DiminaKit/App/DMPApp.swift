@@ -23,6 +23,9 @@ public class DMPApp {
 
     /// Host app provides overlay views (e.g., capsule button) for mini-program pages
     public var pageOverlayProvider: DMPPageOverlayProvider?
+
+    /// 小程序启动完成后的回调（用于引擎自检等）
+    public var onLaunchComplete: (() -> Void)?
     
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
@@ -79,6 +82,7 @@ public class DMPApp {
 
         hideLoading()
         debugLog("🔵 [DMPApp] launch 全部完成")
+        onLaunchComplete?()
     }
 
     public func initService() async {
