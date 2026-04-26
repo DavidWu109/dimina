@@ -23,7 +23,7 @@ public class DMPPageController: UIViewController {
     private let appConfig: DMPAppConfig
     private weak var app: DMPApp?
     private let isRoot: Bool
-    private weak var overlayView: UIView?
+    public private(set) weak var overlayView: UIView?
 
     // WebView related
     private var webview: DMPWebview

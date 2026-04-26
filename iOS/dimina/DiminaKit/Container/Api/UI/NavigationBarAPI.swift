@@ -115,6 +115,12 @@ public class NavigationBarAPI: DMPContainerApi {
                 // 设置导航栏按钮颜色
                 navigationController.navigationBar.tintColor = textColor
                 navigationController.navigationBar.setNeedsLayout()
+
+                // 同步通知 overlay（如宿主胶囊）切换深 / 浅模式
+                if let pageController = topViewController as? DMPPageController,
+                   let stylable = pageController.overlayView as? DMPNavigationBarColorApplicable {
+                    stylable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: backgroundColor)
+                }
             }
             
             // 保存样式到页面记录，以便页面恢复时使用
