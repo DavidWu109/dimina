@@ -24,7 +24,7 @@ public class NetworkAPI: DMPContainerApi {
         register("uploadFile", handler: uploadFile)
     }
 
-    private func request(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func request(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let url = param.getString(key: "url") ?? ""
         let data = param.get("data")
@@ -35,7 +35,7 @@ public class NetworkAPI: DMPContainerApi {
 
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "request:fail invalid url")
-            return nil
+            return DMPAsyncResult()
         }
 
         var header: [String: String]?
@@ -99,10 +99,10 @@ public class NetworkAPI: DMPContainerApi {
             }
         )
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func downloadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func downloadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let url = param.getString(key: "url") ?? ""
         let headerDict = param.getDictionary(key: "header")
@@ -111,7 +111,7 @@ public class NetworkAPI: DMPContainerApi {
 
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "downloadFile:fail invalid url")
-            return nil
+            return DMPAsyncResult()
         }
 
         var header: [String: String]?
@@ -150,10 +150,10 @@ public class NetworkAPI: DMPContainerApi {
             }
         )
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func uploadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func uploadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let url = param.getString(key: "url") ?? ""
         let filePath = param.getString(key: "filePath") ?? ""
@@ -164,17 +164,17 @@ public class NetworkAPI: DMPContainerApi {
 
         if url.isEmpty || filePath.isEmpty || name.isEmpty {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail missing required parameters")
-            return nil
+            return DMPAsyncResult()
         }
 
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail invalid url")
-            return nil
+            return DMPAsyncResult()
         }
 
         if !FileManager.default.fileExists(atPath: filePath) {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail file does not exist")
-            return nil
+            return DMPAsyncResult()
         }
 
         var header: [String: String]?
@@ -219,6 +219,6 @@ public class NetworkAPI: DMPContainerApi {
             }
         )
 
-        return nil
+        return DMPAsyncResult()
     }
 }

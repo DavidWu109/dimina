@@ -19,7 +19,7 @@ public class DeviceAPI: DMPContainerApi {
         register("isDebug", handler: isDebug)
     }
 
-    private func getDeviceInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getDeviceInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let result = DMPMap()
         let data = DMPMap()
 
@@ -35,10 +35,10 @@ public class DeviceAPI: DMPContainerApi {
 //
 //        result.set("data", data)
 //        DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return true
+        return DMPSyncResult(true)
     }
 
-    private func isDebug(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func isDebug(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let result = DMPMap()
 
         #if DEBUG
@@ -49,6 +49,6 @@ public class DeviceAPI: DMPContainerApi {
 
         result.set("data", isDebugMode)
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return true
+        return DMPSyncResult(true)
     }
 }

@@ -48,7 +48,6 @@ public class DMPService {
     }
 
     public func loadFile(path: String) async {
-        print("DMPService: 加载文件，path: \(path)")
         await engine.loadFile(path: path)
     }
 
@@ -63,12 +62,10 @@ public class DMPService {
         let packageName = bundleAppConfig?.getRootPackage(pagePath: pagePath) ?? "main"
         
         if (packageName == "main") {
-            print("DMPService: 加载主包，pagePath: \(pagePath)")
             return
         }
         
         let subPackagePath = DMPSandboxManager.appSubPackagePath(appId: app?.getAppId() ?? "", packageName: packageName)
-        print("DMPService: 加载分包，packageName: \(packageName), subPackagePath: \(subPackagePath)")
         await loadFile(path: subPackagePath)
     }
 
@@ -76,18 +73,18 @@ public class DMPService {
         let script: String = "DiminaServiceBridge.onMessage(\(data))"
         await self.evaluateScript(script)
     }
+
+    @discardableResult
+    func fromContainerMessage(data: DMPMap) async -> JSValue? {
+        print("DMPService: fromContainer data: \(data.toJsonString())")
+
+        let script: String = "DiminaServiceBridge.onMessage(\(data.toJsonString()))"
+        return await self.evaluateScript(script)
+    }
     
     func fromContainer(data: DMPMap) {
         Task {
-            let jsonString = data.toJsonString()
-
-            // 记录 triggerCallback 消息的完整 JSON
-            if jsonString.contains("triggerCallback") && jsonString.contains("request") {
-                DMPEngineLog.writeToLogFile("📨 fromContainer JSON(len=\(jsonString.count)): \(jsonString.prefix(1000))")
-            }
-
-            let script: String = "DiminaServiceBridge.onMessage(\(jsonString))"
-            await self.evaluateScript(script)
+            await self.fromContainerMessage(data: data)
         }
     }
     

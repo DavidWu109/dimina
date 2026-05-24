@@ -23,15 +23,15 @@ public class LoginAPI: DMPContainerApi {
         register("login", handler: login)
     }
 
-    private func login(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func login(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "login:fail app not found")
-            return nil
+            return DMPAsyncResult()
         }
         guard let provider = app.loginProvider else {
             DMPLog.bridge.warn("login: no DMPLoginProvider on app \(app.getAppId()) — host must set app.loginProvider")
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "login:fail no provider")
-            return nil
+            return DMPAsyncResult()
         }
 
         provider.login(appId: app.getAppId()) { result in
@@ -48,6 +48,6 @@ public class LoginAPI: DMPContainerApi {
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "login:fail \(err.localizedDescription)")
             }
         }
-        return nil
+        return DMPAsyncResult()
     }
 }

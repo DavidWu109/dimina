@@ -11,11 +11,12 @@ public class DMPApp {
     private var appId: String
     private var appIndex: Int
     private var appConfig: DMPAppConfig?
-    
+
     private lazy var navigator: DMPNavigator? = DMPNavigator(app: self)
 
     private var bundleAppConfig: DMPBundleAppConfig?
-    
+    private var currentLaunchConfig: DMPLaunchConfig?
+
     public var render: DMPRender?
     public var service: DMPService?
     public var container: DMPContainer?
@@ -30,7 +31,10 @@ public class DMPApp {
 
     /// 小程序启动完成后的回调（用于引擎自检等）
     public var onLaunchComplete: (() -> Void)?
-    
+
+    private var isLaunching = false
+    private var isDestroyed = false
+
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
         self.appId = appConfig.appId
@@ -39,6 +43,16 @@ public class DMPApp {
 
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
+        guard !isLaunching else {
+            print("launch skipped: app is already launching")
+            return
+        }
+
+        isLaunching = true
+        defer {
+            isLaunching = false
+        }
+
         DMPLog.resetFile()
         DMPLog.app.info("launch start, appId=\(appId), versionCode=\(appConfig?.versionCode ?? -1)")
         // 注册 versionCode 映射，供 DiminaURLSchemeHandler 使用
@@ -46,6 +60,9 @@ public class DMPApp {
             DiminaURLSchemeHandler.appVersionMap[appId] = vc
         }
         showLoading()
+
+        await Self.prepareBundleResources(appId: appId)
+
         initBundle()
         DMPLog.app.info("initBundle done")
 
@@ -57,6 +74,15 @@ public class DMPApp {
 
         await loadBundle()
         DMPLog.app.info("loadBundle done, bundleAppConfig=\(bundleAppConfig != nil ? "ok" : "nil")")
+
+        if let manifestUrl = appConfig?.updateManifestUrl,
+           !manifestUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Task {
+                await DMPRemoteUpdateManager.shared.checkForUpdate(app: self, manifestUrl: manifestUrl)
+            }
+        } else {
+            await notifyUpdateStatus(event: "noupdate")
+        }
 
         initRender()
         DMPLog.app.info("initRender done")
@@ -96,15 +122,15 @@ public class DMPApp {
     public func getAppIndex() -> Int {
         return appIndex
     }
-        
+
     public func getBundleAppConfig() -> DMPBundleAppConfig? {
         return bundleAppConfig
     }
-    
+
     public func getContainer() -> DMPContainer? {
         return container
     }
-    
+
     public func initBundle() {
         DMPLog.bundle.debug("initBundle, appId=\(appId)")
         DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
@@ -114,6 +140,14 @@ public class DMPApp {
         if let versionCode = appConfig?.versionCode {
             DMPSandboxManager.initBundleDirectoryForApp(appId: appId + "/\(versionCode)")
         }
+    }
+
+    private static func prepareBundleResources(appId: String) async {
+        await Task.detached(priority: .userInitiated) {
+            DMPResourceManager.prepareSdk()
+            DMPResourceManager.prepareApp(appId: appId)
+            DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
+        }.value
     }
 
     public func initContainer() {
@@ -136,6 +170,14 @@ public class DMPApp {
     public func loadBundle() async {
         DMPLog.bundle.debug("loadBundle")
         let versionCode = appConfig?.versionCode
+
+        // Inject custom API namespaces before loading service.js
+        let namespaces = DMPAppManager.sharedInstance().apiNamespaces
+        if !namespaces.isEmpty {
+            let json = namespaces.map { "\"\($0)\"" }.joined(separator: ",")
+            await service?.evaluateScript("globalThis.__diminaApiNamespaces = [\(json)]")
+        }
+
         await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
 
         // createInnerAudioContext 是同步 API，必须在 JS 端注册
@@ -380,6 +422,16 @@ public class DMPApp {
         self.bundleAppConfig = DMPBundleAppConfig.fromJsonString(json: config)
     }
 
+    func notifyUpdateStatus(event: String) async {
+        let message = DMPMap([
+            "type": "onUpdateStatusChange",
+            "body": [
+                "event": event,
+            ],
+        ])
+        await service?.postMessage(data: message)
+    }
+
     @MainActor
     public func openPage(launchConfig: DMPLaunchConfig) async {
         // 优先使用传入的 path，没传时 fallback 到 app-config.json 的第一个页面
@@ -387,7 +439,36 @@ public class DMPApp {
             ? (self.bundleAppConfig?.entryPagePath ?? "")
             : launchConfig.appEntryPath ?? ""
         DMPLog.app.info("openPage entryPath=\(entryPath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
+
+        // Cache the resolved launch config for applyUpdate relaunch
+        var resolvedConfig = launchConfig
+        resolvedConfig.appEntryPath = entryPath
+        currentLaunchConfig = resolvedConfig
+
         await navigator?.launch(to: entryPath, query: launchConfig.query)
+    }
+
+    @MainActor
+    public func applyUpdate() async {
+        let launchConfig = currentLaunchConfig
+        service?.destroy()
+        await initService()
+        await loadBundle()
+
+        let entryPath = launchConfig?.appEntryPath ?? bundleAppConfig?.entryPagePath ?? ""
+        await navigator?.relaunch(to: entryPath, query: launchConfig?.query, animated: false)
+    }
+
+    /// 注册第三方扩展 bridge 模块。
+    ///
+    /// 小程序通过 `wx.extBridge` / `wx.extOnBridge` / `wx.extOffBridge` 与 native 模块通信，
+    /// 宿主通过此方法（或 `DMPAppManager.registerExtModule`）向框架注册对应处理器。
+    ///
+    /// - Parameters:
+    ///   - moduleName: 模块名，与小程序侧 `module` 参数一致
+    ///   - handler:    处理器，详见 `DMPExtModuleHandler`
+    public func registerExtModule(_ moduleName: String, handler: @escaping DMPExtModuleHandler) {
+        container?.registerExtModule(moduleName, handler: handler)
     }
 
     public func showLoading() {
@@ -399,16 +480,35 @@ public class DMPApp {
     }
 
     public func destroy() {
+        guard !isDestroyed else {
+            return
+        }
+        isDestroyed = true
         DMPLog.app.info("destroy, appId=\(appId)")
-        
+
         // Clear WebView cache pool (execute on main thread)
         Task { @MainActor in
             DMPWebViewPool.shared.clearPool()
         }
-        
-        DMPStorage.teardownModule()
-        
+
+        let serviceToDestroy = service
+        let containerToDestroy = container
+
+        service = nil
+        container = nil
+        containerApi = nil
+        render = nil
+
         DMPAppManager.sharedInstance().removeApp(appId: appId)
-        service?.destroy()
+
+        // 清理第三方扩展的持续订阅，防止内存泄漏
+        containerToDestroy?.clearExtSubscriptions()
+
+        // Storage is a global singleton. Tear it down before another app initializes it.
+        DMPStorage.teardownModule()
+
+        DispatchQueue.global(qos: .utility).async {
+            serviceToDestroy?.destroy()
+        }
     }
 }

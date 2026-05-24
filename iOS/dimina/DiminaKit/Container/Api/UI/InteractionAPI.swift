@@ -20,13 +20,13 @@ public class InteractionAPI: DMPContainerApi {
         register("showActionSheet", handler: showActionSheet)
     }
 
-    private func showToast(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func showToast(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let title = param.get("title") as? String else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "showToast:fail title is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "title is required")
-            return nil
+            return DMPAsyncResult()
         }
 
         let icon = param.get("icon") as? String ?? "success"
@@ -54,10 +54,10 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "showToast:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func showModal(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func showModal(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let title = param.get("title") as? String ?? ""
         let content = param.get("content") as? String ?? ""
@@ -85,16 +85,16 @@ public class InteractionAPI: DMPContainerApi {
                 DMPContainerApi.invokeSuccess(callback: callback, param: result)
             }
         }
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func showLoading(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func showLoading(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let title = param.get("title") as? String else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "showLoading:fail title is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "title is required")
-            return nil
+            return DMPAsyncResult()
         }
 
         let mask = param.get("mask") as? Bool ?? false
@@ -106,10 +106,10 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "showLoading:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func hideToast(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func hideToast(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.main.async {
             ToastManager.shared.hideToast()
         }
@@ -117,10 +117,10 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "hideToast:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func hideLoading(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func hideLoading(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.main.async {
             ToastManager.shared.hideToast()
         }
@@ -128,10 +128,10 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "hideLoading:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func showActionSheet(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func showActionSheet(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let itemColor = param.get("itemColor") as? String ?? "#000000"
 
@@ -146,7 +146,7 @@ public class InteractionAPI: DMPContainerApi {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "showActionSheet:fail itemList is empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "itemList is empty")
-            return nil
+            return DMPAsyncResult()
         }
 
         DispatchQueue.main.async {
@@ -160,6 +160,6 @@ public class InteractionAPI: DMPContainerApi {
                 DMPContainerApi.invokeSuccess(callback: callback, param: result)
             }
         }
-        return nil
+        return DMPAsyncResult()
     }
 }

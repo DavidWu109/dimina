@@ -18,8 +18,8 @@ public class MenuAPI: DMPContainerApi {
         register("getMenuButtonBoundingClientRect", handler: getMenuButtonBoundingClientRect)
     }
 
-    private func getMenuButtonBoundingClientRect(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
-        return MenuAPI.getMenuButtonBoundingClientRect()
+    private func getMenuButtonBoundingClientRect(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
+        return DMPSyncResult(MenuAPI.getMenuButtonBoundingClientRect())
     }
 
     static func getMenuButtonBoundingClientRect() -> DMPMap {

@@ -27,18 +27,19 @@ public class DMPRender: DMPWebViewDelegate {
     @MainActor
     public func createWebView(appName: String) -> DMPWebview {
         let webview = DMPWebViewPool.shared.acquireWebView(
-            delegate: self, 
-            appName: appName, 
+            delegate: self,
+            appName: appName,
             appId: app?.getAppId() ?? ""
         )
         webviewsMap[webview.getWebViewId()] = webview
         return webview
     }
-    
+
     // Release WebView instance
     @MainActor
     public func releaseWebView(_ webview: DMPWebview) {
         let webViewId = webview.getWebViewId()
+        NativeComponentAPI.clear(webViewId: webViewId)
         webviewsMap.removeValue(forKey: webViewId)
         DMPWebViewPool.shared.releaseWebView(webview)
     }
@@ -58,7 +59,7 @@ public class DMPRender: DMPWebViewDelegate {
     }
 
     // Set up JS bridge for single WebView
-    private func setupJSBridge(webViewId: Int) {
+    public func setupJSBridge(webViewId: Int) {
         guard let webview = webviewsMap[webViewId] else { return }
 
         // Register handlers
@@ -84,8 +85,6 @@ public class DMPRender: DMPWebViewDelegate {
         DMPLog.render.info("webViewDidFinishLoad id=\(webViewId)")
         let webview = webviewsMap[webViewId]
 
-        setupJSBridge(webViewId: webViewId)
-
         guard let webview = webview else {
             DMPLog.render.warn("webview id=\(webViewId) not found in map, skip resource loading")
             return
@@ -103,13 +102,19 @@ public class DMPRender: DMPWebViewDelegate {
         }
 
         DMPLog.render.info("webview id=\(webViewId) ready, loading resources for path=\(currentPagePath)")
-        self.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath);
-        self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath);
+        Task { [weak self, weak webview] in
+            await self?.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath)
 
-        scheduleDOMDiagnostics(webview: webview, webViewId: webViewId)
+            await MainActor.run { [weak self, weak webview] in
+                guard let self = self, let webview = webview else { return }
+                self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath)
 
-        webview.poolState = .ready
-        DMPLog.render.info("webview id=\(webViewId) marked as ready")
+                self.scheduleDOMDiagnostics(webview: webview, webViewId: webViewId)
+
+                webview.poolState = .ready
+                DMPLog.render.info("webview id=\(webViewId) marked as ready")
+            }
+        }
     }
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load failure event
@@ -206,4 +211,3 @@ public class DMPRender: DMPWebViewDelegate {
     })()
     """
 }
-

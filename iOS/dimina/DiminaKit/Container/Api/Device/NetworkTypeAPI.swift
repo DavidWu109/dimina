@@ -19,7 +19,7 @@ public class NetworkTypeAPI: DMPContainerApi {
         register("getNetworkType", handler: getNetworkType)
     }
 
-    private func getNetworkType(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getNetworkType(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // 获取网络类型
         let networkType = NetworkTypeAPI.getNetworkTypeInfo()
 
@@ -27,7 +27,7 @@ public class NetworkTypeAPI: DMPContainerApi {
         result.set("errMsg", "getNetworkType:ok")
         result.set("networkType", networkType)
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
     // Helper method to get network type

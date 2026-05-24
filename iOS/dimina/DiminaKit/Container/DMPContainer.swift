@@ -21,9 +21,28 @@ public class DMPContainer {
     private var loadStatusMap: [Int: ResourceLoadType] = [:]
     var isNavigating: Bool = false
 
+    /// 宿主注册的第三方扩展模块，key = moduleName
+    var extModules: [String: DMPExtModuleHandler] = [:]
+
+    /// extOnBridge 持续订阅的取消函数，key = "${module}_${event}"
+    private var extSubscriptions: [String: () -> Void] = [:]
+
     // MARK: - Initialization
     public init(app: DMPApp? = nil) {
         self.app = app
+    }
+
+    // MARK: - Ext Module Management
+
+    /// 注册第三方扩展模块
+    func registerExtModule(_ moduleName: String, handler: @escaping DMPExtModuleHandler) {
+        extModules[moduleName] = handler
+    }
+
+    /// 取消所有持续订阅（小程序销毁时调用）
+    func clearExtSubscriptions() {
+        extSubscriptions.values.forEach { $0() }
+        extSubscriptions.removeAll()
     }
 
     // MARK: - Public Methods
@@ -63,14 +82,11 @@ public class DMPContainer {
         ])
     }
 
-    func loadResourceService(webViewId: Int, pagePath: String) {
-        guard let app = app else {
-            DMPLog.bundle.error("loadResourceService: app is nil, webViewId=\(webViewId) pagePath=\(pagePath)")
-            return
-        }
+    func loadResourceService(webViewId: Int, pagePath: String) async {
+        guard let app = app else { return }
         let message = createResourceMessage(webViewId: webViewId, pagePath: pagePath)
         DMPLog.bundle.info("loadResourceService webViewId=\(webViewId) pagePath=\(pagePath)")
-        DMPChannelProxy.containerToService(msg: message, app: app)
+        await app.service?.fromContainerMessage(data: message)
     }
 
     func loadResourceRender(webViewId: Int, pagePath: String) {
@@ -93,7 +109,7 @@ public class DMPContainer {
 
     public func callBridgeMethod(
         methodName: String, webViewId: Int, param: DMPBridgeParam, app: DMPApp
-    ) -> Any {
+    ) -> DMPAPIResult {
         let moduleName = "DMPContainerBridgesModule"
         print("Bridge call: module=\(moduleName), method=\(methodName)")
         var callback: DMPBridgeCallback = { _, _ in }
@@ -142,19 +158,87 @@ public class DMPContainer {
             }
         }
 
-        if let handler: DMPBridgeMethodHandler = DMPContainerApi.getHandler(for: methodName) {
-            // 用 Mirror 看 closure 是不是空 closure（context 大小为 0 表示无捕获 = 可能是 default empty closure）
-            DMPLog.bridge.info("callBridgeMethod dispatch method=\(methodName) isAsync=\(param.isAsync) handlerType=\(type(of: handler))")
-            let env: DMPBridgeEnv = DMPBridgeEnv(
-                appIndex: self.app?.getAppIndex() ?? 0, appId: self.app?.getAppId() ?? "",
-                webViewId: webViewId)
-            let result = handler(param, env, callback)
-            DMPLog.bridge.info("callBridgeMethod returned method=\(methodName) resultNil=\(result == nil)")
-            return result ?? DMPMap()
+        let env = DMPBridgeEnv(
+            appIndex: self.app?.getAppIndex() ?? 0,
+            appId: self.app?.getAppId() ?? "",
+            webViewId: webViewId
+        )
+
+        // 1. 精确命中已注册的标准 API
+        if let handler = DMPContainerApi.getHandler(for: methodName) {
+            return handler(param, env, callback)
         }
 
-        DMPLog.bridge.error("⚠️ callBridgeMethod: handler not found for method=\(methodName) (handlerCount=\(DMPContainerApi.getRegisteredMethodCount()))")
-        return ["error": "未找到方法: \(methodName)"]
+        // 2. extBridge：param 携带 "module" 字段
+        let paramMap = param.getMap()
+        if paramMap["module"] != nil {
+            ExtBridgeAPI.handle(
+                methodName: methodName,
+                param: param,
+                env: env,
+                callback: callback,
+                extModules: extModules
+            )
+            return DMPNoneResult()
+        }
+
+        // 3. extOnBridge / extOffBridge：methodName 格式为 "${module}_${event}"
+        if let matchedModule = extModules.keys.first(where: { methodName.hasPrefix($0 + "_") }) {
+            let event = String(methodName.dropFirst(matchedModule.count + 1))
+            let successId = paramMap["success"] as? String ?? ""
+            if !successId.isEmpty {
+                handleExtOnBridge(
+                    module: matchedModule,
+                    event: event,
+                    eventKey: methodName,
+                    successCallbackId: successId
+                )
+            } else {
+                handleExtOffBridge(eventKey: methodName)
+            }
+            return DMPNoneResult()
+        }
+
+        print("Bridge invoke error: 未找到方法: \(methodName)")
+        return DMPSyncResult(["error": "未找到方法: \(methodName)"])
+    }
+
+    /// 处理 extOnBridge：启动持续订阅，保存取消函数
+    private func handleExtOnBridge(
+        module: String,
+        event: String,
+        eventKey: String,
+        successCallbackId: String
+    ) {
+        guard let handler = extModules[module] else { return }
+
+        // 若已有相同订阅，先取消旧的
+        extSubscriptions.removeValue(forKey: eventKey)?()
+
+        let extCallback = DMPExtCallback(
+            onSuccess: { [weak self] result in
+                guard let self, let app = self.app else { return }
+                let message = DMPMap([
+                    "type": "triggerCallback",
+                    "body": ["id": successCallbackId, "args": result.toDictionary()],
+                ])
+                DMPChannelProxy.containerToService(msg: message, app: app)
+            },
+            onFail: { error in
+                print("extOnBridge error (\(eventKey)): \(error.toJsonString())")
+            }
+        )
+
+        let unsubscribe = handler(event, DMPMap(), extCallback)
+        if let unsubscribe {
+            extSubscriptions[eventKey] = unsubscribe
+        }
+    }
+
+    /// 处理 extOffBridge：取消持续订阅
+    private func handleExtOffBridge(eventKey: String) {
+        extSubscriptions.removeValue(forKey: eventKey)?()
+        print("extOffBridge: cancelled subscription for \(eventKey)")
     }
 
     // MARK: - Private Methods

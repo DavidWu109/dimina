@@ -19,7 +19,7 @@ public class KeyboardAPI: DMPContainerApi {
         register("adjustPosition", handler: adjustPosition)
     }
 
-    private func hideKeyboard(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func hideKeyboard(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // 让当前第一响应者放弃响应状态来隐藏键盘
         DispatchQueue.main.async {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -28,12 +28,12 @@ public class KeyboardAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "hideKeyboard:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func adjustPosition(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func adjustPosition(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // Empty implementation for adjusting the keyboard position
-        return nil
+        return DMPNoneResult()
     }
 
 }

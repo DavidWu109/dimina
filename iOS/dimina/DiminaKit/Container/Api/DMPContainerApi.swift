@@ -30,7 +30,7 @@ public class DMPBridgeEnv {
 public typealias DMPBridgeCallback = (_ args: DMPMap, _ cbType: DMPBridgeCallbackType) -> Void
 
 // 定义桥接方法处理程序类型
-public typealias DMPBridgeMethodHandler = (_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any?
+public typealias DMPBridgeMethodHandler = (_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult
 
 // @BridgeMethod 仍保留供 EchoWebKit 等外部 pod 使用。
 // dimina 内置 API 已全量迁移到 init + register() 实例方法模式。
@@ -41,7 +41,7 @@ public struct BridgeMethod {
 
     public init(_ name: String) {
         self.name = name
-        self.wrappedValue = { _, _, _ in }
+        self.wrappedValue = { _, _, _ in DMPNoneResult() }
         DMPContainerApi.registerMethod(name: name)
     }
 
@@ -74,23 +74,36 @@ public class DMPContainerApi: NSObject {
         // 1. 注册内置 API（DMPContainerApi 子类，init 里通过 register() 注册 handler）
         DMPLog.bridge.debug("registering built-in APIs")
         _ = RouteAPI(app: app)
+        _ = BaseAPI(app: app)
+        _ = SystemAPI(app: app)
+        _ = UpdateAPI(app: app)
         _ = NetworkAPI(app: app)
-        _ = StorageAPI()
-        _ = InteractionAPI()
+        _ = StorageAPI(app: app)
+        _ = InteractionAPI(app: app)
         _ = ImageAPI(app: app)
         _ = AudioAPI(app: app)
+        _ = VideoAPI(app: app)
         _ = FileSystemAPI(app: app)
-        _ = NavigationBarAPI()  // setNavigationBarTitle / setNavigationBarColor
-        _ = TabBarAPI()         // setTabBarStyle / setTabBarItem / show|hideTabBar 等
-        _ = LoginAPI()          // wx.login → DMPLoginProvider
+        _ = MenuAPI(app: app)
+        _ = NavigationBarAPI(app: app)
+        _ = ScrollAPI(app: app)
+        _ = NativeComponentAPI(app: app)
+        _ = TabBarAPI(app: app)
+        _ = LoginAPI(app: app)
+        // Device APIs
+        _ = ClipboardAPI(app: app)
+        _ = ContactAPI(app: app)
+        _ = KeyboardAPI(app: app)
+        _ = NetworkTypeAPI(app: app)
+        _ = PhoneAPI(app: app)
+        _ = VibrateAPI(app: app)
+        _ = DeviceAPI(app: app)
         let sortedKeys = bridgeHandlerMap.keys.sorted().joined(separator: ",")
         DMPLog.bridge.info("built-in APIs registered, bridgeHandlerMap=\(bridgeHandlerMap.count) keys=\(sortedKeys)")
 
         // 2. 注册外部自定义 API（BridgeMethodProtocol 类型，通过 registerCustomAPI 注册）
         registerDefaultAPITypes()
         initializeAllAPIs(app: app)
-
-        print("📦 [DMPContainerApi] 全部 API 注册完成，bridgeHandlerMap 共 \(bridgeHandlerMap.count) 个方法")
 
         return DMPContainerApi(app: app)
     }
@@ -227,12 +240,12 @@ public class DMPContainerApi: NSObject {
         return Array(bridgeHandlerMap.keys)
     }
     
-    public func invokeBridgeMethod(name: String, data: DMPBridgeParam, env: DMPBridgeEnv, callback: DMPBridgeCallback? = nil) -> Any? {
+    public func invokeBridgeMethod(name: String, data: DMPBridgeParam, env: DMPBridgeEnv, callback: DMPBridgeCallback? = nil) -> DMPAPIResult {
         if let handler = Self.getHandler(for: name) {
             return handler(data, env, callback)
         }
         print("未找到方法: \(name)")
-        return nil
+        return DMPNoneResult()
     }
     
     // 统一的回调处理方法

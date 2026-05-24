@@ -31,15 +31,15 @@ public class AudioAPI: DMPContainerApi {
         register("innerAudioDestroy", handler: innerAudioDestroy)
     }
 
-    private func createInnerAudioContext(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func createInnerAudioContext(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let audioId = "audio_\(Int(Date().timeIntervalSince1970 * 1000))_\(Int.random(in: 1000...9999))"
         let result = DMPMap()
         result.set("audioId", audioId)
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func innerAudioPlay(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func innerAudioPlay(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let params = param.getMap()
         let audioId = params.getString(key: "audioId") ?? ""
         let src = params.getString(key: "src") ?? ""
@@ -49,7 +49,7 @@ public class AudioAPI: DMPContainerApi {
 
         guard !src.isEmpty else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "innerAudioPlay:fail src is empty")
-            return nil
+            return DMPAsyncResult()
         }
 
         DispatchQueue.global().async {
@@ -78,37 +78,37 @@ public class AudioAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func innerAudioPause(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func innerAudioPause(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         AudioAPI.players[audioId]?.pause()
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["audioId": audioId]))
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func innerAudioStop(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func innerAudioStop(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         AudioAPI.players[audioId]?.stop()
         AudioAPI.players[audioId]?.currentTime = 0
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["audioId": audioId]))
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func innerAudioSeek(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func innerAudioSeek(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         let position = param.getMap().get("position") as? Double ?? 0
         AudioAPI.players[audioId]?.currentTime = position
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["audioId": audioId]))
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func innerAudioDestroy(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func innerAudioDestroy(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         AudioAPI.players[audioId]?.stop()
         AudioAPI.players.removeValue(forKey: audioId)
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["audioId": audioId]))
-        return nil
+        return DMPAsyncResult()
     }
 }

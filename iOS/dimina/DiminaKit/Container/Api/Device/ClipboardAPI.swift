@@ -19,12 +19,12 @@ public class ClipboardAPI: DMPContainerApi {
         register("getClipboardData", handler: getClipboardData)
     }
 
-    private func setClipboardData(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func setClipboardData(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         guard let data = param.getMap().get("data") as? String else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "setClipboardData:fail data is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "data is required")
-            return nil
+            return DMPAsyncResult()
         }
 
         // 直接设置剪贴板内容
@@ -33,10 +33,10 @@ public class ClipboardAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "setClipboardData:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func getClipboardData(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getClipboardData(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // 直接获取剪贴板内容
         let clipboardData = UIPasteboard.general.string
 
@@ -46,6 +46,6 @@ public class ClipboardAPI: DMPContainerApi {
         }
         result.set("errMsg", "getClipboardData:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 }

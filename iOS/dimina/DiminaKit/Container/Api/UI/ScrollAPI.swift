@@ -18,20 +18,20 @@ public class ScrollAPI: DMPContainerApi {
         register("pageScrollTo", handler: pageScrollTo)
     }
 
-    private func pageScrollTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func pageScrollTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let scrollTop = param["scrollTop"] as? CGFloat ?? 0
         let duration = param["duration"] as? CGFloat ?? 300
 
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "invalid app")
-            return nil
+            return DMPAsyncResult()
         }
 
         guard let render = app.render,
               let webview = render.getWebView(byId: env.webViewId) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "invalid render or webview")
-            return nil
+            return DMPAsyncResult()
         }
 
         let wkWebView = webview.getWebView()
@@ -44,6 +44,6 @@ public class ScrollAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 }

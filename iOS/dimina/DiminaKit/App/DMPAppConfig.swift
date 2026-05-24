@@ -14,6 +14,8 @@ public struct DMPAppConfig : Identifiable {
     public var path: String?
     public var versionCode: Int?
     public var versionName: String?
+    public var updateManifestUrl: String?
+    public var isDebugMode: Bool = false
 
     public var color: Color?
     public var icon: String?

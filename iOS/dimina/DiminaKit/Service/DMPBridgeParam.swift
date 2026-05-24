@@ -8,7 +8,7 @@
 import Foundation
 import JavaScriptCore
 
-public enum DMPBridgeParamType: Int {
+enum DMPBridgeParamType: Int {
     case object = 0
     case array = 1
     case string = 2
@@ -22,22 +22,22 @@ public enum DMPBridgeParamType: Int {
 
 
 public class DMPBridgeParam {
-    public var value: Any
-    public var type: DMPBridgeParamType
-    public var isAsync: Bool = false
+    var value: Any
+    var type: DMPBridgeParamType
+    var isAsync: Bool = false
     
-    public init(value: Any) {
-        if value is [String: Any] {
+    init(value: Any) {
+        if let dict = value as? [String: Any] {
             self.type = .object
-            self.isAsync = true
+            self.isAsync = DMPBridgeParam.hasCallbackIdentifiers(dict)
         } else if value is [Any] {
             self.type = .array
+        } else if value is Bool {
+            self.type = .boolean
         } else if value is String {
             self.type = .string
         } else if value is NSNumber {
             self.type = .number
-        } else if value is Bool {
-            self.type = .boolean
         } else if value is Float {
             self.type = .float
         } else if value is Double {
@@ -49,22 +49,50 @@ public class DMPBridgeParam {
         self.value = value
     }
 
-    public func getMap() -> DMPMap {
+    private static func hasCallbackIdentifiers(_ dict: [String: Any]) -> Bool {
+        let callbackKeys = ["success", "fail", "complete"]
+        return callbackKeys.contains { key in
+            guard let value = dict[key] else { return false }
+            return value is String
+        }
+    }
+
+    static func from(rawValue: Any?) -> DMPBridgeParam {
+        guard let rawValue else {
+            let param = DMPBridgeParam(value: NSNull())
+            param.type = .null
+            return param
+        }
+
+        if rawValue is NSNull {
+            let param = DMPBridgeParam(value: rawValue)
+            param.type = .null
+            return param
+        }
+
+        if let param = rawValue as? DMPBridgeParam {
+            return param
+        }
+
+        return DMPBridgeParam(value: rawValue)
+    }
+
+    func getMap() -> DMPMap {
         if type != .object {
             return DMPMap()
         }
         return DMPMap(value as! [String: Any])
     }
 
-    public func getValue() -> Any {
+    func getValue() -> Any {
         return value
     }
 
-    public func getType() -> DMPBridgeParamType {
+    func getType() -> DMPBridgeParamType {
         return type
     }
 
-    public func getJSValue(context: JSContext) -> JSValue {
+    func getJSValue(context: JSContext) -> JSValue {
         switch type {
         case .object:
             return JSValue(object: value as! [String: Any], in: context)

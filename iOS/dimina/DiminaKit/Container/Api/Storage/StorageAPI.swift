@@ -30,43 +30,43 @@ public class StorageAPI: DMPContainerApi {
         register("getStorageInfo", handler: getStorageInfo)
     }
 
-    private func setStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func setStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
-        guard let key = param.get("key") as? String else { return false }
+        guard let key = param.get("key") as? String else { return DMPSyncResult(false) }
         let data = param.get("data")
         let encrypt = param.get("encrypt") as? Bool ?? false
 
-        guard let data = data else { return false }
+        guard let data = data else { return DMPSyncResult(false) }
 
         let result = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
-        return result
+        return DMPSyncResult(result)
     }
 
-    private func getStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
-        guard let key = param.getValue() as? String else { return nil }
+    private func getStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
+        guard let key = param.getValue() as? String else { return DMPNoneResult() }
         let value = DMPStorage.shared.get(key: key, encrypted: false)
-        return DMPBridgeParam(value: value)
+        return DMPSyncResult(DMPBridgeParam(value: value))
     }
 
-    private func removeStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func removeStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
-        guard let key = param.get("key") as? String else { return false }
+        guard let key = param.get("key") as? String else { return DMPSyncResult(false) }
         let encrypt = param.get("encrypt") as? Bool ?? false
 
         DMPStorage.shared.remove(key: key, encrypted: encrypt)
-        return true
+        return DMPSyncResult(true)
     }
 
-    private func clearStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func clearStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DMPStorage.shared.clearAllStorage()
-        return true
+        return DMPSyncResult(true)
     }
 
-    private func setStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func setStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let key = param.get("key") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setStorage:fail missing parameter key")
-            return nil
+            return DMPAsyncResult()
         }
 
         let data = param.get("data")
@@ -74,7 +74,7 @@ public class StorageAPI: DMPContainerApi {
 
         guard let data = data else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setStorage:fail missing parameter data")
-            return nil
+            return DMPAsyncResult()
         }
 
         DispatchQueue.global().async {
@@ -91,14 +91,14 @@ public class StorageAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func getStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let key = param.get("key") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "getStorage:fail missing parameter key")
-            return nil
+            return DMPAsyncResult()
         }
 
         let encrypt = param.get("encrypt") as? Bool ?? false
@@ -118,14 +118,14 @@ public class StorageAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func removeStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func removeStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let key = param.get("key") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "removeStorage:fail missing parameter key")
-            return nil
+            return DMPAsyncResult()
         }
 
         let encrypt = param.get("encrypt") as? Bool ?? false
@@ -140,10 +140,10 @@ public class StorageAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func clearStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func clearStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.global().async {
             DMPStorage.shared.clearAllStorage()
 
@@ -154,10 +154,10 @@ public class StorageAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func getStorageInfoSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getStorageInfoSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let storageInfo = DMPStorage.shared.getAllStorageInfo()
 
         let result = DMPMap()
@@ -165,10 +165,10 @@ public class StorageAPI: DMPContainerApi {
         result.set("currentSize", storageInfo.currentSize)
         result.set("limitSize", storageInfo.limitSize)
 
-        return result
+        return DMPSyncResult(result)
     }
 
-    private func getStorageInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getStorageInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.global().async {
             let storageInfo = DMPStorage.shared.getAllStorageInfo()
 
@@ -183,6 +183,6 @@ public class StorageAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 }

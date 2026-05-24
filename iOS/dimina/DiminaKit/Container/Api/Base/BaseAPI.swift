@@ -17,16 +17,16 @@ public class BaseAPI: DMPContainerApi {
         register("canIUse", handler: canIUse)
     }
 
-    private func canIUse(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func canIUse(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         guard let schema = param.getMap().get("schema") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "canIUse:fail missing parameter schema")
-            return false
+            return DMPSyncResult(false)
         }
 
         let registeredMethods = DMPContainerApi.getAllRegisteredMethods()
 
         let isAvailable = registeredMethods.contains(schema)
 
-        return isAvailable
+        return DMPSyncResult(isAvailable)
     }
 }

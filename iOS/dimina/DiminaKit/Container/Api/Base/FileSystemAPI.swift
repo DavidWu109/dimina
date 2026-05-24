@@ -31,19 +31,19 @@ public class FileSystemAPI: DMPContainerApi {
         register("fsRename", handler: fsRename)
     }
 
-    private func getFileSystemManager(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getFileSystemManager(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["result": true]))
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsReadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsReadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let params = param.getMap()
         let filePath = params.getString(key: "filePath") ?? ""
         let encoding = params.getString(key: "encoding") ?? "utf8"
 
         guard !filePath.isEmpty else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "readFile:fail filePath is required")
-            return nil
+            return DMPAsyncResult()
         }
 
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
@@ -70,10 +70,10 @@ public class FileSystemAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsWriteFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsWriteFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let params = param.getMap()
         let filePath = params.getString(key: "filePath") ?? ""
         let dataString = params.getString(key: "data") ?? ""
@@ -81,7 +81,7 @@ public class FileSystemAPI: DMPContainerApi {
 
         guard !filePath.isEmpty else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "writeFile:fail filePath is required")
-            return nil
+            return DMPAsyncResult()
         }
 
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
@@ -105,10 +105,10 @@ public class FileSystemAPI: DMPContainerApi {
             }
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsMkdir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsMkdir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let params = param.getMap()
         let dirPath = params.getString(key: "dirPath") ?? ""
         let recursive = params.get("recursive") as? Bool ?? false
@@ -122,10 +122,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "mkdir:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsRmdir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsRmdir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let dirPath = param.getMap().getString(key: "dirPath") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(dirPath, appId: env.appId)
 
@@ -136,10 +136,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "rmdir:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsUnlink(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsUnlink(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let filePath = param.getMap().getString(key: "filePath") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
 
@@ -150,10 +150,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "unlink:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsStat(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsStat(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let filePath = param.getMap().getString(key: "path") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
 
@@ -172,10 +172,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "stat:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsAccess(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsAccess(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let filePath = param.getMap().getString(key: "path") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
 
@@ -185,10 +185,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "access:fail no such file or directory")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsReaddir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsReaddir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let dirPath = param.getMap().getString(key: "dirPath") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(dirPath, appId: env.appId)
 
@@ -201,10 +201,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "readdir:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsCopyFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsCopyFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let params = param.getMap()
         let srcPath = params.getString(key: "srcPath") ?? ""
         let destPath = params.getString(key: "destPath") ?? ""
@@ -221,10 +221,10 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "copyFile:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func fsRename(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func fsRename(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let params = param.getMap()
         let oldPath = params.getString(key: "oldPath") ?? ""
         let newPath = params.getString(key: "newPath") ?? ""
@@ -239,7 +239,7 @@ public class FileSystemAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "rename:fail \(error.localizedDescription)")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
     // MARK: - 路径解析

@@ -26,32 +26,32 @@ public class SystemAPI: DMPContainerApi {
         register("getSystemInfo", handler: getSystemInfo)
     }
 
-    private func getWindowInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getWindowInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let windowInfo = DMPMap(DMPUIManager.shared.getDeviceDisplayInfo())
-        return windowInfo
+        return DMPSyncResult(windowInfo)
     }
 
-    private func getSystemSetting(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getSystemSetting(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // 公司 fork 故意不主动调 CBCentralManager / CLLocationManager 等
         // 触发权限弹窗的 API，保持空 dict 返回。详见 reference-dimina-upstream-merge-strategy。
         let result = DMPMap()
-        return result
+        return DMPSyncResult(result)
     }
 
-    private func getSystemInfoSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
-        return SystemAPI.getSystemInfo()
+    private func getSystemInfoSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
+        return DMPSyncResult(SystemAPI.getSystemInfo())
     }
 
-    private func getSystemInfoAsync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getSystemInfoAsync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let systemInfo = SystemAPI.getSystemInfo()
         DMPContainerApi.invokeSuccess(callback: callback, param: systemInfo)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func getSystemInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func getSystemInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let systemInfo = SystemAPI.getSystemInfo()
         DMPContainerApi.invokeSuccess(callback: callback, param: systemInfo)
-        return systemInfo
+        return DMPSyncResult(systemInfo)
     }
 
     static func getSystemInfo() -> DMPMap {

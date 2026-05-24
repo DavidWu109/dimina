@@ -19,18 +19,18 @@ public class NavigationBarAPI: DMPContainerApi {
         register("setNavigationBarColor", handler: setNavigationBarColor)
     }
 
-    private func setNavigationBarTitle(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func setNavigationBarTitle(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let title = param.get("title") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarTitle:fail missing parameter title")
-            return nil
+            return DMPAsyncResult()
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
         guard let navigationController = app?.getNavigator()?.navigationController else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarTitle:fail navigation controller not found")
-            return nil
+            return DMPAsyncResult()
         }
 
         DispatchQueue.main.async {
@@ -41,20 +41,20 @@ public class NavigationBarAPI: DMPContainerApi {
             DMPContainerApi.invokeSuccess(callback: callback, param: result)
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func setNavigationBarColor(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func setNavigationBarColor(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let frontColor = param.get("frontColor") as? String,
               let backgroundColor = param.get("backgroundColor") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarColor:fail missing required parameters")
-            return nil
+            return DMPAsyncResult()
         }
 
         guard frontColor == "#ffffff" || frontColor == "#000000" else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarColor:fail frontColor only supports #ffffff or #000000")
-            return nil
+            return DMPAsyncResult()
         }
 
         let animation = param.getDMPMap(key: "animation")
@@ -106,8 +106,11 @@ public class NavigationBarAPI: DMPContainerApi {
                 navigationController.navigationBar.tintColor = textColor
                 navigationController.navigationBar.setNeedsLayout()
 
+                // 通知 overlay (宿主胶囊) 切换深/浅模式 —— overlayView 需要宿主通过 pageOverlayProvider 注入
                 if let pageController = topViewController as? DMPPageController,
-                   let stylable = pageController.overlayView as? DMPNavigationBarColorApplicable {
+                   pageController.responds(to: Selector(("overlayView"))),
+                   let overlay = pageController.value(forKey: "overlayView"),
+                   let stylable = overlay as? DMPNavigationBarColorApplicable {
                     stylable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: backgroundColor)
                 }
             }
@@ -127,6 +130,6 @@ public class NavigationBarAPI: DMPContainerApi {
             DMPContainerApi.invokeSuccess(callback: callback, param: result)
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 }

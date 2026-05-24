@@ -20,7 +20,7 @@ public class VibrateAPI: DMPContainerApi {
         register("vibrateLong", handler: vibrateLong)
     }
 
-    private func vibrateShort(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func vibrateShort(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let type = param.getMap()["type"] as? String
         let style = VibrateAPI.getVibrationType(type: type)
         VibrateAPI.vibrate(style: style)
@@ -30,10 +30,10 @@ public class VibrateAPI: DMPContainerApi {
         result.set("errMsg", "vibrateShort:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func vibrateLong(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func vibrateLong(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.main.async {
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
@@ -43,7 +43,7 @@ public class VibrateAPI: DMPContainerApi {
         result.set("errMsg", "vibrateLong:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
 
-        return nil
+        return DMPAsyncResult()
     }
 
     // Helper method to get vibration pattern

@@ -20,14 +20,14 @@ public class ContactAPI: DMPContainerApi {
         register("addPhoneContact", handler: addPhoneContact)
     }
 
-    private func chooseContact(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func chooseContact(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
               let navigator = app.getNavigator(),
               let navController = navigator.navigationController else {
             let result = DMPMap()
             result.set("errMsg", "chooseContact:fail")
             DMPContainerApi.invokeFailure(callback: callback, param: result, errMsg: "无法获取导航控制器")
-            return nil
+            return DMPAsyncResult()
         }
 
         DispatchQueue.main.async {
@@ -70,10 +70,10 @@ public class ContactAPI: DMPContainerApi {
             navController.present(contactPicker, animated: true)
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func addPhoneContact(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func addPhoneContact(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // 检查是否有必要的权限
         let authStatus = CNContactStore.authorizationStatus(for: .contacts)
 
@@ -93,7 +93,7 @@ public class ContactAPI: DMPContainerApi {
             ContactAPI.createContact(param: param.getMap(), callback: callback)
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
     // 辅助方法：创建联系人

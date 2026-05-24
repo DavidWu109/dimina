@@ -27,13 +27,13 @@ public class RouteAPI: DMPContainerApi {
         register("reLaunch", handler: reLaunch)
     }
 
-    private func switchTab(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func switchTab(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "switchTab:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return nil
+            return DMPAsyncResult()
         }
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
         let urlData = DMPUtil.queryPath(path: url)
@@ -44,7 +44,7 @@ public class RouteAPI: DMPContainerApi {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "switchTab:fail '\(pagePath)' is not a tabBar page")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "not a tabBar page")
-            return nil
+            return DMPAsyncResult()
         }
 
         Task { @MainActor in
@@ -54,16 +54,16 @@ public class RouteAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "switchTab:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func navigateTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func navigateTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "navigateTo:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return nil
+            return DMPAsyncResult()
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
@@ -80,16 +80,16 @@ public class RouteAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "navigateTo:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func redirectTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func redirectTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "redirectTo:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return nil
+            return DMPAsyncResult()
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
@@ -105,10 +105,10 @@ public class RouteAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "redirectTo:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func navigateBack(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func navigateBack(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
@@ -119,16 +119,16 @@ public class RouteAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "navigateBack:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func reLaunch(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func reLaunch(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "reLaunch:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return nil
+            return DMPAsyncResult()
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
@@ -144,6 +144,6 @@ public class RouteAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "reLaunch:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 }

@@ -100,6 +100,14 @@ public class DMPBundleAppConfig {
         
         return mergedConfig
     }
+
+    func getTabBarIndex(pagePath: String) -> Int {
+        return tabBar?.list.firstIndex(where: { $0.pagePath == pagePath }) ?? -1
+    }
+
+    func isTabBarPage(pagePath: String) -> Bool {
+        return getTabBarIndex(pagePath: pagePath) >= 0
+    }
 }
 
 struct ModuleConfig {

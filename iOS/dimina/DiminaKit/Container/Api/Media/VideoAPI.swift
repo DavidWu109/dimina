@@ -23,7 +23,7 @@ public class VideoAPI: DMPContainerApi {
         register("chooseVideo", handler: chooseVideo)
     }
 
-    private func chooseMedia(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func chooseMedia(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
 
         let count = (param["count"] as? NSNumber)?.intValue ?? 9
@@ -36,12 +36,12 @@ public class VideoAPI: DMPContainerApi {
         // 检查参数有效性
         if count <= 0 || count > 20 {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "count must be between 1 and 20")
-            return nil
+            return DMPAsyncResult()
         }
 
         if maxDuration < 3 || maxDuration > 60 {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "maxDuration must be between 3 and 60 seconds")
-            return nil
+            return DMPAsyncResult()
         }
 
         // 如果sourceTypes包含多种选择，则显示ActionSheet让用户选择
@@ -88,10 +88,10 @@ public class VideoAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Invalid sourceType")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
-    private func chooseVideo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
+    private func chooseVideo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         // 获取参数，与 chooseMedia 类似但只针对视频
         let sourceType = param.getMap()["sourceType"] as? [String] ?? ["album", "camera"]
         let compressed = param.getMap()["compressed"] as? Bool ?? true
@@ -142,7 +142,7 @@ public class VideoAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Invalid sourceType")
         }
 
-        return nil
+        return DMPAsyncResult()
     }
 
     // MARK: - Helper methods for chooseMedia
