@@ -106,7 +106,16 @@ public class DMPEngineLog {
             }
             return "[\(formattedItems.joined(separator: ", "))]"
         } else if value.isObject {
-            if let dict = value.toDictionary() {
+            // Error 对象的 message/name/stack 是 non-enumerable，toDictionary() 会丢失。
+            if let ctor = value.objectForKeyedSubscript("constructor"),
+               let ctorName = ctor.objectForKeyedSubscript("name").toString(),
+               ctorName.hasSuffix("Error") {
+                let name = value.objectForKeyedSubscript("name").toString() ?? ctorName
+                let message = value.objectForKeyedSubscript("message").toString() ?? ""
+                let stack = value.objectForKeyedSubscript("stack").toString() ?? ""
+                return "\(name): \(message)\n\(stack)"
+            }
+            if let dict = value.toDictionary(), !dict.isEmpty {
                 do {
                     let data = try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted])
                     if let jsonString = String(data: data, encoding: .utf8) {
@@ -114,11 +123,15 @@ public class DMPEngineLog {
                     }
                 } catch {
                 }
-            } else {
-                return value.toString() ?? "Object"
             }
+            // 空字典或不可序列化时回退到 toString，并附 message 字段（若有）
+            let fallback = value.toString() ?? "[Object]"
+            if let msg = value.objectForKeyedSubscript("message")?.toString(), !msg.isEmpty, msg != "undefined" {
+                return "\(fallback) message=\(msg)"
+            }
+            return fallback
         }
-        
+
         return value.toString() ?? "Unknown"
     }
 }

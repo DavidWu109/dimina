@@ -19,51 +19,42 @@ class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
     
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
+            DMPLog.scheme.error("difile:// request has no URL")
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
             return
         }
-        
+
         guard let path = DMPFileUtil.sandboxPathFromVPath(from: url.absoluteString, appId: self.appId) else {
-            let errorMessage = "无法获取资源路径"
-            print("❌ \(errorMessage)")
-            urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: 404, userInfo: [NSLocalizedDescriptionKey: errorMessage]))
+            DMPLog.scheme.error("difile cannot resolve vpath url=\(url.absoluteString) appId=\(appId)")
+            urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: 404, userInfo: [NSLocalizedDescriptionKey: "无法获取资源路径"]))
             return
         }
-        
-        print("📦 DifileURLSchemeHandler loading resource: \(path)")
-        
-        // Check if the file exists
+
         guard FileManager.default.fileExists(atPath: path) else {
-            let errorMessage = "Resource does not exist: \(path)"
-            print("❌ \(errorMessage)")
-            urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: 404, userInfo: [NSLocalizedDescriptionKey: errorMessage]))
+            DMPLog.scheme.error("difile not found url=\(url.absoluteString) path=\(path)")
+            urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: 404, userInfo: [NSLocalizedDescriptionKey: "Resource does not exist: \(path)"]))
             return
         }
-        
+
         do {
-            // Read file data
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
-            
-            // Set response headers
             let mimeType = mimeTypeForPath(path)
-            let headers = ["Content-Type": mimeType, "Access-Control-Allow-Origin": "*"]
             let response = URLResponse(url: url, mimeType: mimeType, expectedContentLength: data.count, textEncodingName: "UTF-8")
-            
-            // Return response and data
+
             urlSchemeTask.didReceive(response)
             urlSchemeTask.didReceive(data)
             urlSchemeTask.didFinish()
-            
-            print("✅ Resource loaded successfully: \(url.absoluteString)")
+
+            DMPLog.scheme.debug("difile ok \(url.path) → \(data.count)B \(mimeType)")
         } catch {
-            print("❌ Resource loading failed: \(error.localizedDescription)")
+            let ns = error as NSError
+            DMPLog.scheme.error("difile read fail url=\(url.absoluteString) path=\(path) domain=\(ns.domain) code=\(ns.code) msg=\(error.localizedDescription)")
             urlSchemeTask.didFailWithError(error)
         }
     }
-    
+
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-        // Cleanup operations when the task is stopped
-        print("🛑 Stopping resource loading")
+        DMPLog.scheme.debug("difile stop \(urlSchemeTask.request.url?.absoluteString ?? "nil")")
     }
     
     // Get MIME type based on file path

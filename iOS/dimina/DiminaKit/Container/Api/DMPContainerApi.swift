@@ -41,12 +41,19 @@ public struct BridgeMethod {
     public init(_ name: String) {
         self.name = name
         self.wrappedValue = { _, _, _ in }
+        DMPLog.bridge.info("BridgeMethod init(name) called: \(name) — registering EMPTY handler!")
         DMPContainerApi.registerMethod(name: name)
     }
-    
+
     public init(wrappedValue: @escaping DMPBridgeMethodHandler, _ name: String) {
         self.name = name
         self.wrappedValue = wrappedValue
+        if name == "showModal" {
+            let stack = Thread.callStackSymbols.prefix(10).joined(separator: " | ")
+            DMPLog.bridge.info("BridgeMethod init(wrappedValue,name): \(name) STACK: \(stack)")
+        } else {
+            DMPLog.bridge.info("BridgeMethod init(wrappedValue,name): \(name)")
+        }
         DMPContainerApi.registerMethod(name: name, handler: wrappedValue)
     }
 }
@@ -71,7 +78,7 @@ public class DMPContainerApi: NSObject {
     
     public static func create(app: DMPApp? = nil) -> DMPContainerApi {
         // 1. 注册内置 API（DMPContainerApi 子类，直接实例化注册 @BridgeMethod）
-        print("📦 [DMPContainerApi] 注册内置 API（DMPContainerApi 子类）...")
+        DMPLog.bridge.debug("registering built-in APIs")
         _ = RouteAPI(app: app)
         _ = NetworkAPI(app: app)
         _ = StorageAPI()
@@ -79,7 +86,11 @@ public class DMPContainerApi: NSObject {
         _ = ImageAPI(app: app)
         _ = AudioAPI(app: app)
         _ = FileSystemAPI(app: app)
-        print("📦 [DMPContainerApi] 内置 API 注册完成")
+        _ = NavigationBarAPI()  // setNavigationBarTitle / setNavigationBarColor
+        _ = TabBarAPI()         // setTabBarStyle / setTabBarItem / show|hideTabBar 等
+        _ = LoginAPI()          // wx.login → DMPLoginProvider
+        let sortedKeys = bridgeHandlerMap.keys.sorted().joined(separator: ",")
+        DMPLog.bridge.info("built-in APIs registered, bridgeHandlerMap=\(bridgeHandlerMap.count) keys=\(sortedKeys)")
 
         // 2. 注册外部自定义 API（BridgeMethodProtocol 类型，通过 registerCustomAPI 注册）
         registerDefaultAPITypes()

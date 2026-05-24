@@ -11,8 +11,12 @@ import UIKit
 /**
  * UI - Interaction API
  */
-public class InteractionAPI: DMPContainerApi, BridgeMethodProtocol {
-    public required init() {}
+// 故意不实现 BridgeMethodProtocol —— 实测带 protocol 时 _showModal 等 property wrapper
+// 的 stored property 会被二次求值（init 体跑完后又跑一次），导致后注册的 wrapper closure 覆盖
+// 任何在 init 体里手动注册的 handler；wrapper 自己 init 注册的 closure 看似 ok 但实际 dispatch
+// 时 closure body 不执行（symptom: callBridgeMethod returned 但 closure entry log 不出）。
+// LoginAPI 不实现 BridgeMethodProtocol，handler 正常工作 —— 跟它对齐。
+public class InteractionAPI: DMPContainerApi {
     
     
     // API method names
@@ -71,10 +75,12 @@ public class InteractionAPI: DMPContainerApi, BridgeMethodProtocol {
     // Show modal
     @BridgeMethod(SHOW_MODAL)
     var showModal: DMPBridgeMethodHandler = { param, env, callback in
+        DMPLog.bridge.info("🎯 showModal closure ENTRY")
         let param = param.getMap()
         // 获取可选参数
         let title = param.get("title") as? String ?? ""
         let content = param.get("content") as? String ?? ""
+        DMPLog.bridge.info("showModal native handler title=\(title) contentLen=\(content.count)")
         let showCancel = param.get("showCancel") as? Bool ?? true
         let cancelText = param.get("cancelText") as? String ?? "取消"
         let cancelColor = param.get("cancelColor") as? String ?? "#000000"

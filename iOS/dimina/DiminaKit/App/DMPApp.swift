@@ -24,6 +24,10 @@ public class DMPApp {
     /// Host app provides overlay views (e.g., capsule button) for mini-program pages
     public var pageOverlayProvider: DMPPageOverlayProvider?
 
+    /// 宿主注入：处理 mini-app 的 wx.login 调用（拿临时 code 等）。
+    /// 不注入时 wx.login 会失败返回 "login:fail no provider"。
+    public var loginProvider: DMPLoginProvider?
+
     /// 小程序启动完成后的回调（用于引擎自检等）
     public var onLaunchComplete: (() -> Void)?
     
@@ -33,55 +37,35 @@ public class DMPApp {
         self.appIndex = appIndex
     }
 
-    private func debugLog(_ msg: String) {
-        print(msg)
-        let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_launch.log")
-        let line = "\(Date()) \(msg)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logFile.path) {
-                if let handle = try? FileHandle(forWritingTo: logFile) {
-                    handle.seekToEndOfFile()
-                    handle.write(data)
-                    handle.closeFile()
-                }
-            } else {
-                try? data.write(to: logFile)
-            }
-        }
-    }
-
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
-        // 清空旧日志
-        let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_launch.log")
-        try? FileManager.default.removeItem(at: logFile)
-
-        debugLog("🔵 [DMPApp] launch 开始, appId=\(appId), versionCode=\(appConfig?.versionCode ?? -1)")
+        DMPLog.resetFile()
+        DMPLog.app.info("launch start, appId=\(appId), versionCode=\(appConfig?.versionCode ?? -1)")
         // 注册 versionCode 映射，供 DiminaURLSchemeHandler 使用
         if let vc = appConfig?.versionCode {
             DiminaURLSchemeHandler.appVersionMap[appId] = vc
         }
         showLoading()
         initBundle()
-        debugLog("🔵 [DMPApp] initBundle 完成")
+        DMPLog.app.info("initBundle done")
 
         initContainer()
-        debugLog("🔵 [DMPApp] initContainer 完成")
+        DMPLog.app.info("initContainer done")
 
         await initService()
-        debugLog("🔵 [DMPApp] initService 完成")
+        DMPLog.app.info("initService done")
 
         await loadBundle()
-        debugLog("🔵 [DMPApp] loadBundle 完成, bundleAppConfig=\(bundleAppConfig != nil ? "有" : "nil")")
+        DMPLog.app.info("loadBundle done, bundleAppConfig=\(bundleAppConfig != nil ? "ok" : "nil")")
 
         initRender()
-        debugLog("🔵 [DMPApp] initRender 完成")
+        DMPLog.app.info("initRender done")
 
         await openPage(launchConfig: launchConfig)
-        debugLog("🔵 [DMPApp] openPage 完成")
+        DMPLog.app.info("openPage done")
 
         hideLoading()
-        debugLog("🔵 [DMPApp] launch 全部完成")
+        DMPLog.app.info("launch finished")
         onLaunchComplete?()
     }
 
@@ -122,7 +106,7 @@ public class DMPApp {
     }
     
     public func initBundle() {
-        print("initBundle")
+        DMPLog.bundle.debug("initBundle, appId=\(appId)")
         DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         DMPResourceManager.prepareSdk()
         DMPResourceManager.prepareApp(appId: appId)
@@ -133,8 +117,8 @@ public class DMPApp {
     }
 
     public func initContainer() {
-        print("initContainer")
-        DMPStorage.setupModule(appId: appId)        
+        DMPLog.app.debug("initContainer")
+        DMPStorage.setupModule(appId: appId)
         DMPUIManager.shared.prepareUI()
         container = DMPContainer(app: self)
         containerApi = DMPContainerApi.create(app: self)
@@ -142,15 +126,15 @@ public class DMPApp {
 
     @MainActor
     public func initRender() {
-        print("initRender")
+        DMPLog.render.debug("initRender")
         render = DMPRender(app: self)
-        
+
         // Pre-warm WebView pool to improve first page opening speed
         DMPWebViewPool.shared.warmUp()
     }
 
     public func loadBundle() async {
-        print("loadBundle")
+        DMPLog.bundle.debug("loadBundle")
         let versionCode = appConfig?.versionCode
         await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
 
@@ -202,6 +186,37 @@ public class DMPApp {
                 };
             })();
 
+            // TabBar APIs polyfill: 桥接到 native TabBarAPI（避免 Taro mini-app 调用未实现方法抛 TypeError 导致白屏）
+            (function() {
+                function bridge(name) {
+                    return function(opts) {
+                        opts = opts || {};
+                        try {
+                            DiminaServiceBridge.invoke({
+                                type: name,
+                                body: opts,
+                                bridgeId: opts.bridgeId
+                            });
+                        } catch (e) {}
+                        // Taro/wx callback 约定：同步触发 success/complete
+                        try {
+                            var res = { errMsg: name + ':ok' };
+                            if (typeof opts.success === 'function') opts.success(res);
+                            if (typeof opts.complete === 'function') opts.complete(res);
+                        } catch (e) {}
+                    };
+                }
+                var methods = [
+                    'setTabBarStyle', 'setTabBarItem',
+                    'showTabBar', 'hideTabBar',
+                    'setTabBarBadge', 'removeTabBarBadge',
+                    'showTabBarRedDot', 'hideTabBarRedDot'
+                ];
+                methods.forEach(function(m) {
+                    if (typeof wx[m] !== 'function') wx[m] = bridge(m);
+                });
+            })();
+
             // getFileSystemManager 同步 API
             wx.getFileSystemManager = function() {
                 return {
@@ -238,33 +253,153 @@ public class DMPApp {
 
         await service?.loadFile(path: DMPSandboxManager.appServicePath(appId: appId, versionCode: versionCode))
 
+        // mini-app 的 Taro 模块（modDefine('/taro', ...)）有自己一套 API 白名单，不自动代理 wx。
+        // 通过 modRequire('/taro') 拿到模块 exports，给 Taro 对象注入缺失方法（来源：wx）。
+        //
+        // 实测要补的方法（每条都有具体业务问题报告）：
+        // - tabBar 8 个（避免 Taro mini-app 调 setTabBarStyle 等抛 TypeError）
+        // - showModal: 一键登录拿到 code 后 Taro.showModal 弹 alert 没显示 → 是 Taro 这边没桥
+        //   实测 method=login + method=setClipboardData 都 callback OK 但没有 method=showModal
+        // - showToast / hideToast / showLoading / hideLoading: Taro 常用 UI 反馈类，同源问题
+        // - getAppBaseInfo / getWindowInfo: 业务 onLaunch 时报 TypeError，被 try/catch 吞但日志噪音大
+        await service?.evaluateScript("""
+            (function() {
+                try {
+                    console.log('[DEBUG][dimina] Taro polyfill: entry');
+                    if (typeof modRequire !== 'function') {
+                        console.error('[DEBUG][dimina] Taro polyfill: modRequire is not a function');
+                        return;
+                    }
+                    var taroMod = modRequire('/taro');
+                    if (!taroMod) {
+                        console.error('[DEBUG][dimina] Taro polyfill: modRequire(/taro) returned null');
+                        return;
+                    }
+                    if (!taroMod.Taro) {
+                        console.error('[DEBUG][dimina] Taro polyfill: taroMod has no .Taro export, keys=', Object.keys(taroMod));
+                        return;
+                    }
+                    var Taro = taroMod.Taro;
+                    var methods = [
+                        // tabBar
+                        'setTabBarStyle', 'setTabBarItem',
+                        'showTabBar', 'hideTabBar',
+                        'setTabBarBadge', 'removeTabBarBadge',
+                        'showTabBarRedDot', 'hideTabBarRedDot',
+                        // UI feedback / dialogs
+                        'showModal', 'showActionSheet',
+                        'showToast', 'hideToast',
+                        'showLoading', 'hideLoading',
+                        // env / device info（mini-app onLaunch 常用）
+                        'getAppBaseInfo', 'getWindowInfo', 'getSystemInfoSync', 'getSystemInfo'
+                    ];
+                    var patched = [];
+                    var skippedHasTaro = [];
+                    var skippedNoWx = [];
+                    methods.forEach(function(m) {
+                        var hasTaro = typeof Taro[m] === 'function';
+                        var hasWx = typeof wx[m] === 'function';
+                        if (!hasTaro && hasWx) {
+                            Taro[m] = wx[m];
+                            patched.push(m);
+                        } else if (hasTaro) {
+                            skippedHasTaro.push(m);
+                        } else {
+                            skippedNoWx.push(m);
+                        }
+                    });
+                    console.log('[DEBUG][dimina] Taro polyfill summary: patched=[' + patched.join(',') + '] skippedAlreadyOnTaro=[' + skippedHasTaro.join(',') + '] skippedMissingOnWx=[' + skippedNoWx.join(',') + ']');
+
+                    // Taro 自己的 showModal 实现实测不走 native bridge（dimina_console 永远看不到 method=showModal）。
+                    // mini-app 一键登录拿到 code 后 alert 不弹就是这个原因。强制用 wx.showModal 覆盖。
+                    // 用 list 集中维护，以后发现别的 Taro API 也 broken 时直接加进来。
+                    var forceOverride = ['showModal', 'showActionSheet', 'showToast', 'hideToast', 'showLoading', 'hideLoading'];
+                    var overridden = [];
+                    var failedOverride = [];
+                    forceOverride.forEach(function(m) {
+                        if (typeof wx[m] === 'function') {
+                            try {
+                                var desc = Object.getOwnPropertyDescriptor(Taro, m);
+                                // 优先尝试普通赋值
+                                Taro[m] = wx[m];
+                                // 验证：如果 Taro[m] 没被改成 wx[m]，说明属性是 readonly / 有 setter / 冻结
+                                if (Taro[m] !== wx[m]) {
+                                    // 强制 redefine（如果可以的话）
+                                    try {
+                                        Object.defineProperty(Taro, m, {
+                                            value: wx[m],
+                                            writable: true,
+                                            configurable: true,
+                                            enumerable: true
+                                        });
+                                    } catch (e2) {}
+                                    if (Taro[m] !== wx[m]) {
+                                        failedOverride.push(m + '(desc=' + JSON.stringify(desc) + ')');
+                                        return;
+                                    }
+                                }
+                                overridden.push(m);
+                            } catch (e) {
+                                failedOverride.push(m + '(throw: ' + e.message + ')');
+                            }
+                        }
+                    });
+                    if (overridden.length) {
+                        console.log('[DEBUG][dimina] Taro polyfill force-overridden OK: ' + overridden.join(','));
+                    }
+                    if (failedOverride.length) {
+                        console.error('[DEBUG][dimina] Taro polyfill force-override FAILED: ' + failedOverride.join(' | '));
+                    }
+
+                    // 诊断：包装 wx.showModal，记录每次调用（判断业务到底有没有触发到 wx 这一层）
+                    var origShowModal = wx.showModal;
+                    wx.showModal = function(opts) {
+                        console.log('[DEBUG][dimina] wx.showModal CALLED title=' + (opts && opts.title) + ' contentLen=' + (opts && opts.content ? String(opts.content).length : 0));
+                        return origShowModal(opts);
+                    };
+                    // 重新指向新的 wrapped wx.showModal（之前 force-override 拿到的是旧引用）
+                    Taro.showModal = wx.showModal;
+
+                    // 1 秒后验证 Taro.showModal 引用是否被外力篡改
+                    setTimeout(function() {
+                        var stillEqual = (Taro.showModal === wx.showModal);
+                        console.log('[DEBUG][dimina] Taro polyfill 1s post-check: Taro.showModal===wx.showModal=' + stillEqual);
+                    }, 1000);
+                } catch (e) {
+                    console.error('[DEBUG][dimina] Taro polyfill failed:', e && e.message ? e.message : e);
+                }
+            })();
+        """)
+
         let path = DMPSandboxManager.appConfigPath(appId: appId, versionCode: versionCode)
         let config = DMPFileUtil.readJsonFile(at: path)
-        print("config: \(path) \(String(describing: config))")
+        DMPLog.bundle.debug("loaded app-config.json at \(path)")
+        if config == nil {
+            DMPLog.bundle.warn("app-config.json is nil at \(path)")
+        }
         self.bundleAppConfig = DMPBundleAppConfig.fromJsonString(json: config)
     }
 
     @MainActor
     public func openPage(launchConfig: DMPLaunchConfig) async {
-        print("openPage")
         // 优先使用传入的 path，没传时 fallback 到 app-config.json 的第一个页面
         let entryPath = (launchConfig.appEntryPath ?? "").isEmpty
             ? (self.bundleAppConfig?.entryPagePath ?? "")
             : launchConfig.appEntryPath ?? ""
-        print("openPage entryPath=\(entryPath) (from launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
+        DMPLog.app.info("openPage entryPath=\(entryPath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
         await navigator?.launch(to: entryPath, query: launchConfig.query)
     }
 
     public func showLoading() {
-        print("showLoading")
+        DMPLog.app.debug("showLoading")
     }
 
     public func hideLoading() {
-        print("hideLoading")
-    } 
+        DMPLog.app.debug("hideLoading")
+    }
 
     public func destroy() {
-        print("app destroy")
+        DMPLog.app.info("destroy, appId=\(appId)")
         
         // Clear WebView cache pool (execute on main thread)
         Task { @MainActor in

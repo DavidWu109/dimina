@@ -12,13 +12,18 @@ class DMPChannelProxy {
         type: String, body: DMPMap,
         target: String, app: DMPApp
     ) -> Any {
-        print("🔴 messageHandler:type=\(type) target=\(target) body=\(body.toJsonString())")
-
         let webViewId: Int = body.get("bridgeId") as? Int ?? 0
         let webview = app.render?.getWebView(byId: webViewId)
         if webViewId != 0 && webview != nil {
             body.set("pagePath", webview!.getPagePath())
             body.set("query", webview!.getQuery())
+        }
+        // 暂时升级为 info 排查 showModal/invokeAPI 不到 native 的问题
+        if type == "invokeAPI" || type == "domReady" {
+            let methodName = body.get("name") as? String ?? "?"
+            DMPLog.bridge.info("messageHandler type=\(type) target=\(target) bridgeId=\(webViewId) name=\(methodName)")
+        } else {
+            DMPLog.bridge.debug("messageHandler type=\(type) target=\(target) bridgeId=\(webViewId)")
         }
 
         if target == "service" {
@@ -31,25 +36,22 @@ class DMPChannelProxy {
                 let resourceType: ResourceLoadType =
                     type == "serviceResourceLoaded" ? .serviceLoaded : .renderLoaded
                 app.container!.hasLoadResource(webViewId: webViewId, type: resourceType)
+                let loaded = app.container!.isResourceLoaded(webViewId: webViewId)
+                DMPLog.bridge.info("\(type) bridgeId=\(webViewId) allLoaded=\(loaded)")
 
-                if app.container!.isResourceLoaded(webViewId: webViewId) {
+                if loaded {
                     body.set("scene", DMPScene.fromMainEntry.rawValue)
-
                     transMsg.set("type", "resourceLoaded")
 
                     Task { @MainActor in
                         await app.service?.postMessage(data: transMsg)
                     }
-                    print(
-                        "send \(resourceType == .serviceLoaded ? "service" : "render") resourceLoaded"
-                    )
+                    DMPLog.bridge.info("→ service resourceLoaded bridgeId=\(webViewId)")
                     return DMPMap()
                 } else {
-                    print("isResourceLoaded false")
                     return DMPMap()
                 }
             } else {
-                print("🔴🔴🔴 DMPChannelProxy.postMessage")
                 Task { @MainActor in
                     await app.service?.postMessage(data: transMsg)
                 }

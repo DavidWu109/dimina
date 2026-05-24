@@ -64,14 +64,22 @@ public class DMPContainer {
     }
 
     func loadResourceService(webViewId: Int, pagePath: String) {
-        guard let app = app else { return }
+        guard let app = app else {
+            DMPLog.bundle.error("loadResourceService: app is nil, webViewId=\(webViewId) pagePath=\(pagePath)")
+            return
+        }
         let message = createResourceMessage(webViewId: webViewId, pagePath: pagePath)
+        DMPLog.bundle.info("loadResourceService webViewId=\(webViewId) pagePath=\(pagePath)")
         DMPChannelProxy.containerToService(msg: message, app: app)
     }
 
     func loadResourceRender(webViewId: Int, pagePath: String) {
-        guard let app = app else { return }
+        guard let app = app else {
+            DMPLog.bundle.error("loadResourceRender: app is nil, webViewId=\(webViewId) pagePath=\(pagePath)")
+            return
+        }
         let message = createResourceMessage(webViewId: webViewId, pagePath: pagePath)
+        DMPLog.bundle.info("loadResourceRender webViewId=\(webViewId) pagePath=\(pagePath)")
         DMPChannelProxy.containerToRender(msg: message, app: app, webViewId: webViewId)
     }
 
@@ -135,13 +143,17 @@ public class DMPContainer {
         }
 
         if let handler: DMPBridgeMethodHandler = DMPContainerApi.getHandler(for: methodName) {
+            // 用 Mirror 看 closure 是不是空 closure（context 大小为 0 表示无捕获 = 可能是 default empty closure）
+            DMPLog.bridge.info("callBridgeMethod dispatch method=\(methodName) isAsync=\(param.isAsync) handlerType=\(type(of: handler))")
             let env: DMPBridgeEnv = DMPBridgeEnv(
                 appIndex: self.app?.getAppIndex() ?? 0, appId: self.app?.getAppId() ?? "",
                 webViewId: webViewId)
-            return handler(param, env, callback) ?? DMPMap()
+            let result = handler(param, env, callback)
+            DMPLog.bridge.info("callBridgeMethod returned method=\(methodName) resultNil=\(result == nil)")
+            return result ?? DMPMap()
         }
 
-        print("Bridge invoke error: 未找到方法: \(methodName)")
+        DMPLog.bridge.error("⚠️ callBridgeMethod: handler not found for method=\(methodName) (handlerCount=\(DMPContainerApi.getRegisteredMethodCount()))")
         return ["error": "未找到方法: \(methodName)"]
     }
 

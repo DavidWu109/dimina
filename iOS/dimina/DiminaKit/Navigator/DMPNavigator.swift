@@ -72,30 +72,51 @@ public class DMPNavigator: NSObject {
         }
     }
 
-    /// 启动到指定页面
+    /// 启动到指定页面。如果 path 是 app-config.json tabBar.list 里的页面，
+    /// 创建 DMPTabBarContainerController（持有所有 tab pages）作为根；否则直接推 DMPPageController。
     @MainActor
     public func launch(to path: String, query: [String: Any]? = nil, animated: Bool = true) async {
-        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] launch path=\(path) navController=\(navigationController != nil)")
+        DMPLog.app.info("DMPNavigator launch path=\(path) navController=\(navigationController != nil)")
         guard let navigationController = navigationController else {
-            DMPEngineLog.writeToLogFile("❌ [DMPNavigator] 导航控制器未设置或已释放")
+            DMPLog.app.error("DMPNavigator launch: navigationController not set or released")
             return
         }
-        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] nav stack before push: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
+        DMPLog.app.debug("nav stack before push: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
 
         pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
 
-        // 使用DMPPageController创建页面
-        let pageController = DMPPageController(
-            pagePath: path,
-            query: query,
-            appConfig: app!.getAppConfig()!,
-            app: app,
-            navigator: self,
-            isRoot: true
-        )
+        // 检查是否为 tab 页面 → 走容器路径
+        let tabBarConfig = app?.getBundleAppConfig()?.tabBar
+        let isTabPage = tabBarConfig?.contains(pagePath: path) ?? false
+
+        let rootController: UIViewController
+        let firstPageController: DMPPageController
+
+        if isTabPage, let tabBarConfig = tabBarConfig, let app = app {
+            let container = DMPTabBarContainerController(
+                tabBarConfig: tabBarConfig,
+                initialPagePath: path,
+                query: query,
+                app: app,
+                navigator: self
+            )
+            rootController = container
+            firstPageController = container.currentPageController!  // 一定存在：构造时已 init pageControllers
+            DMPLog.app.info("launch: tab page → DMPTabBarContainerController with \(container.pageControllers.count) tabs, initial=\(path)")
+        } else {
+            firstPageController = DMPPageController(
+                pagePath: path,
+                query: query,
+                appConfig: app!.getAppConfig()!,
+                app: app,
+                navigator: self,
+                isRoot: true
+            )
+            rootController = firstPageController
+        }
 
         let pageRecord = DMPPageRecord(
-            webViewId: pageController.getWebView().getWebViewId(),
+            webViewId: firstPageController.getWebView().getWebViewId(),
             fromWebViewId: app!.getCurrentWebViewId(), pagePath: path)
         pageRecord.query = query
         pageRecord.navStyle = app?.getBundleAppConfig()?.getPageConfig(pagePath: path)
@@ -103,14 +124,34 @@ public class DMPNavigator: NSObject {
 
         await app?.service?.loadSubPackage(pagePath: path)
 
-        // 使用 setViewControllers 代替 pushViewController，避免转场动画进行中 push 被 UIKit 静默忽略
-        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] adding DMPPageController via setViewControllers, nav still alive=\(self.navigationController != nil)")
+        // setViewControllers 代替 push（避免转场动画时 push 被静默忽略）
         var viewControllers = navigationController.viewControllers
-        viewControllers.append(pageController)
+        viewControllers.append(rootController)
         navigationController.setViewControllers(viewControllers, animated: animated)
-        DMPEngineLog.writeToLogFile("🟢 [DMPNavigator] setViewControllers done, nav stack after: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
+        DMPLog.app.debug("nav stack after launch: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        pageLifecycle?.onShow(webviewId: firstPageController.getWebView().getWebViewId())
+    }
+
+    /// 切到指定 tab 页面。栈里必须有 DMPTabBarContainerController。
+    @MainActor
+    public func switchTab(to path: String) -> Bool {
+        guard let navigationController = navigationController else { return false }
+        guard let container = navigationController.viewControllers.compactMap({ $0 as? DMPTabBarContainerController }).first else {
+            DMPLog.app.warn("switchTab failed: no DMPTabBarContainerController in nav stack (path=\(path))")
+            return false
+        }
+        guard let index = container.tabBarConfig.index(of: path) else {
+            DMPLog.app.warn("switchTab failed: '\(path)' not in tabBar.list")
+            return false
+        }
+
+        let oldWebViewId = container.currentPageController?.getWebView().getWebViewId() ?? -1
+        pageLifecycle?.onHide(webviewId: oldWebViewId)
+        container.switchTo(index: index)
+        let newWebViewId = container.currentPageController?.getWebView().getWebViewId() ?? -1
+        pageLifecycle?.onShow(webviewId: newWebViewId)
+        return true
     }
 
     /// 导航到指定页面
@@ -307,5 +348,10 @@ public class DMPNavigator: NSObject {
     /// 获取当前页面记录
     public func getTopPageRecord() -> DMPPageRecord? {
         return pageRecords.last
+    }
+
+    /// 给外部容器（如 DMPTabBarContainerController）追加 pageRecord 用。
+    public func appendPageRecord(_ record: DMPPageRecord) {
+        pageRecords.append(record)
     }
 }

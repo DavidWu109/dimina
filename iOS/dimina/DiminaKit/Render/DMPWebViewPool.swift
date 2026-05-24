@@ -86,45 +86,27 @@ public class DMPWebViewPool {
     ///   - appId: Application ID
     /// - Returns: Configured DMPWebview instance
     public func acquireWebView(delegate: DMPWebViewDelegate?, appName: String, appId: String) -> DMPWebview {
-        let availableCount = webViews.filter { $0.poolState.canReuse }.count
-        let inUseCount = webViews.filter { $0.poolState.isInUse }.count
-        let resetingCount = webViews.filter { $0.poolState == .reseting }.count
-        
-        print("🟦 WebViewPool: Requesting WebView, pool status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
-        
         let webview: DMPWebview
-        
+        let reused: Bool
+
         if let availableWebView = findAvailableWebView() {
             // Reuse existing WebView
             webview = availableWebView
-            
-            // Update status to configuring
             webview.poolState = .configuring
-            
             webview.regenerateWebViewId()
             webview.setDelegate(delegate)
-            
-            // Synchronously execute reset logic to ensure correct state setting
             webview.resetForReuse(appName: appName, appId: appId)
-            
-            print("🟢 WebViewPool: Reuse WebView (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
+            reused = true
         } else {
             // Create new WebView
             webview = createNewWebView(delegate: delegate, appName: appName, appId: appId)
             webview.regenerateWebViewId()
             webview.poolState = .configuring
-            
-            // Add to pool
             webViews.append(webview)
-            
-            print("🟡 WebViewPool: Create new WebView (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
+            reused = false
         }
-        
-        let newAvailableCount = webViews.filter { $0.poolState.canReuse }.count
-        let newInUseCount = webViews.filter { $0.poolState.isInUse }.count
-        let newResetingCount = webViews.filter { $0.poolState == .reseting }.count
-        
-        print("🟦 WebViewPool: WebView allocated, pool status - Available: \(newAvailableCount), InUse: \(newInUseCount), Reseting: \(newResetingCount)")
+
+        DMPLog.pool.info("acquire id=\(webview.getWebViewId()) reused=\(reused) appId=\(appId) \(poolSnapshot())")
         
         // Asynchronous preload more WebViews - on main thread
         Task { @MainActor in
@@ -138,66 +120,51 @@ public class DMPWebViewPool {
     /// - Parameter webview: WebView to release
     public func releaseWebView(_ webview: DMPWebview) {
         let webViewId = webview.getWebViewId()
-        
-        let availableCount = webViews.filter { $0.poolState.canReuse }.count
-        let inUseCount = webViews.filter { $0.poolState.isInUse }.count
-        let resetingCount = webViews.filter { $0.poolState == .reseting }.count
-        
-        print("🟦 WebViewPool: Requesting to release WebView (ID: \(webViewId)), pool status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
-        
-        // Find corresponding webview
+
         guard let targetWebView = webViews.first(where: { $0.getWebViewId() == webViewId && $0.poolState.isInUse }) else {
-            print("⚠️ WebViewPool: Warning - Trying to release WebView that's not in use (ID: \(webViewId))")
+            DMPLog.pool.warn("release skipped, webview id=\(webViewId) not in use")
             return
         }
-        
-        // Immediately set to resetting state to prevent reuse
+
         targetWebView.poolState = .reseting
-        print("🔄 WebViewPool: WebView (ID: \(webViewId)) marked as reseting")
-        
+        DMPLog.pool.info("release id=\(webViewId) → reseting \(poolSnapshot())")
+
         // Asynchronously clean WebView state to avoid blocking main thread
         Task { @MainActor in
-            // Clean WebView state
             targetWebView.prepareForReuse()
-            
-            // Add short delay to ensure cleanup is complete
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            
-            // Check if pool is full
+
             let totalCount = self.webViews.count
             if totalCount <= self.maxPoolSize {
-                // Mark as available state
                 targetWebView.poolState = .available
-                print("🔵 WebViewPool: WebView returned to pool (ID: \(webViewId)), state: \(targetWebView.poolState.description)")
+                DMPLog.pool.info("recycled id=\(webViewId) → available \(self.poolSnapshot())")
             } else {
-                // Pool is full, destroy WebView
                 self.webViews.removeAll { $0.getWebViewId() == webViewId }
                 self.cleanupWebView(targetWebView)
-                print("🔴 WebViewPool: Pool is full, destroy WebView (ID: \(webViewId))")
+                DMPLog.pool.info("pool full, destroyed id=\(webViewId) \(self.poolSnapshot())")
             }
-            
-            let newAvailableCount = self.webViews.filter { $0.poolState.canReuse }.count
-            let newInUseCount = self.webViews.filter { $0.poolState.isInUse }.count
-            let newResetingCount = self.webViews.filter { $0.poolState == .reseting }.count
-            
-            print("🟦 WebViewPool: WebView released, pool status - Available: \(newAvailableCount), InUse: \(newInUseCount), Reseting: \(newResetingCount)")
         }
     }
-    
+
+    /// Snapshot of pool state for logging.
+    fileprivate func poolSnapshot() -> String {
+        let available = webViews.filter { $0.poolState.canReuse }.count
+        let inUse = webViews.filter { $0.poolState.isInUse }.count
+        let reseting = webViews.filter { $0.poolState == .reseting }.count
+        return "(pool avail=\(available) inUse=\(inUse) reseting=\(reseting) total=\(webViews.count))"
+    }
+
     /// Warm up WebView pool
     public func warmUp() {
+        DMPLog.pool.debug("warmUp \(poolSnapshot())")
         Task { @MainActor in
             await preloadWebViews()
         }
     }
-    
+
     /// Clear pool
     public func clearPool() {
-        let availableCount = webViews.filter { $0.poolState.canReuse }.count
-        let inUseCount = webViews.filter { $0.poolState.isInUse }.count
-        let resetingCount = webViews.filter { $0.poolState == .reseting }.count
-        
-        print("🧹 WebViewPool: Start clearing pool, current status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
+        DMPLog.pool.info("clearPool start \(poolSnapshot())")
         
         // 1. Clean all non-using WebViews
         for webview in webViews {
@@ -209,18 +176,16 @@ public class DMPWebViewPool {
         // 2. Remove all non-using WebViews
         webViews.removeAll { !$0.poolState.isInUse }
         
-        // 3. Warning for still using WebViews
         let stillInUseCount = webViews.filter { $0.poolState.isInUse }.count
         if stillInUseCount > 0 {
-            print("⚠️ WebViewPool: Warning - Still \(stillInUseCount) WebViews in use")
+            DMPLog.pool.warn("clearPool: \(stillInUseCount) webviews still in use, not destroyed")
         }
-        
-        print("🧹 WebViewPool: Pool cleared")
+        DMPLog.pool.info("clearPool done \(poolSnapshot())")
     }
-    
+
     /// Completely clean single WebView
     private func cleanupWebView(_ webview: DMPWebview) {
-        print("🧹 WebViewPool: Clean WebView (ID: \(webview.getWebViewId()))")
+        DMPLog.pool.debug("cleanupWebView id=\(webview.getWebViewId())")
         
         // Stop all network requests
 //        webview.getWebView().stopLoading()

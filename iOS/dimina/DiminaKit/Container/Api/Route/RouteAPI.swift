@@ -23,6 +23,39 @@ public class RouteAPI: DMPContainerApi {
     private static let REDIRECT_TO = "redirectTo"
     private static let NAVIGATE_BACK = "navigateBack"
     private static let RE_LAUNCH = "reLaunch"
+    private static let SWITCH_TAB = "switchTab"
+
+    // tabBar 页面切换。语义：在 DMPTabBarContainerController 容器里换 selectedIndex，不动 nav 栈。
+    @BridgeMethod(SWITCH_TAB)
+    var switchTab: DMPBridgeMethodHandler = { param, env, callback in
+        let param = param.getMap()
+        guard let url = param.get("url") as? String, !url.isEmpty else {
+            let errorMap = DMPMap()
+            errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail URL cannot be empty")
+            DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
+            return
+        }
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
+        let urlData = DMPUtil.queryPath(path: url)
+        let pagePath = urlData["pagePath"] as! String
+
+        // 校验是不是 tabBar 页面
+        if let tabBar = app?.getBundleAppConfig()?.tabBar, !tabBar.contains(pagePath: pagePath) {
+            let errorMap = DMPMap()
+            errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail '\(pagePath)' is not a tabBar page")
+            DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "not a tabBar page")
+            return
+        }
+
+        Task { @MainActor in
+            _ = app?.getNavigator()?.switchTab(to: pagePath)
+        }
+
+        let result = DMPMap()
+        result.set("errMsg", "\(RouteAPI.SWITCH_TAB):ok")
+        DMPContainerApi.invokeSuccess(callback: callback, param: result)
+        return nil
+    }
 
     // Navigate to a new page
     @BridgeMethod(NAVIGATE_TO)
@@ -41,6 +74,7 @@ public class RouteAPI: DMPContainerApi {
         let urlData = DMPUtil.queryPath(path: url)
         let pagePath = urlData["pagePath"] as! String
         let query = urlData["query"] as! [String: Any]
+        DMPLog.bridge.info("navigateTo url=\(url) → pagePath=\(pagePath) query=\(query)")
 
         Task { @MainActor in
             await app?.getNavigator()?.navigateTo(to: pagePath, query: query)
