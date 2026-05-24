@@ -112,6 +112,26 @@ public class DMPTabBarView: UIView {
         }
     }
 
+    public func setBadge(index: Int, text: String) {
+        guard index >= 0, index < buttons.count else { return }
+        buttons[index].setBadge(text)
+    }
+
+    public func removeBadge(index: Int) {
+        guard index >= 0, index < buttons.count else { return }
+        buttons[index].removeBadge()
+    }
+
+    public func showRedDot(index: Int) {
+        guard index >= 0, index < buttons.count else { return }
+        buttons[index].showRedDot()
+    }
+
+    public func hideRedDot(index: Int) {
+        guard index >= 0, index < buttons.count else { return }
+        buttons[index].hideRedDot()
+    }
+
     @objc private func onTap(_ sender: UIControl) {
         let index = sender.tag
         guard index >= 0, index < config.list.count else { return }
@@ -233,5 +253,62 @@ private final class DMPTabBarItemButton: UIControl {
         normalColor = normal
         selectedColor = selected
         label.textColor = isSelected ? selected : normal
+    }
+
+    // MARK: - Badge / Red Dot
+
+    private lazy var badgeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 9, weight: .medium)
+        l.textColor = .white
+        l.backgroundColor = .systemRed
+        l.textAlignment = .center
+        l.layer.cornerRadius = 8
+        l.layer.masksToBounds = true
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.isHidden = true
+        addSubview(l)
+        NSLayoutConstraint.activate([
+            l.centerXAnchor.constraint(equalTo: iconView.trailingAnchor),
+            l.centerYAnchor.constraint(equalTo: iconView.topAnchor, constant: 2),
+            l.heightAnchor.constraint(equalToConstant: 16),
+            l.widthAnchor.constraint(greaterThanOrEqualToConstant: 16),
+        ])
+        return l
+    }()
+
+    private lazy var redDotView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .systemRed
+        v.layer.cornerRadius = 4
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        addSubview(v)
+        NSLayoutConstraint.activate([
+            v.centerXAnchor.constraint(equalTo: iconView.trailingAnchor),
+            v.centerYAnchor.constraint(equalTo: iconView.topAnchor, constant: 2),
+            v.widthAnchor.constraint(equalToConstant: 8),
+            v.heightAnchor.constraint(equalToConstant: 8),
+        ])
+        return v
+    }()
+
+    func setBadge(_ text: String) {
+        badgeLabel.text = " \(text) "
+        badgeLabel.isHidden = false
+        redDotView.isHidden = true
+    }
+
+    func removeBadge() {
+        badgeLabel.isHidden = true
+    }
+
+    func showRedDot() {
+        redDotView.isHidden = false
+        badgeLabel.isHidden = true
+    }
+
+    func hideRedDot() {
+        redDotView.isHidden = true
     }
 }

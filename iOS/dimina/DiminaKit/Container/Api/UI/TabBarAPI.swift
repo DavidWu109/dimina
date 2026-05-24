@@ -5,15 +5,9 @@
 //  TabBar API: setTabBarStyle / setTabBarItem / showTabBar / hideTabBar /
 //  setTabBarBadge / removeTabBarBadge / showTabBarRedDot / hideTabBarRedDot
 //
-//  Dimina 的 tabBar 由 app-config.json 的 tabBar 段静态描述，宿主负责实际渲染。
-//  iOS 端 mini-app 一般不真正显示 tabBar（小程序通常用单页面 + 自定义 tabbar），
-//  这里实现的 API 当 success 返回，但不试图改宿主 UI —— 避免把 Kuril 主 TabBar
-//  改得乱七八糟，同时保证 Taro/wx 调用不再抛 TypeError 导致整页白屏。
-//
 
 import Foundation
 
-/// UI - TabBar API stubs
 public class TabBarAPI: DMPContainerApi {
 
     public override init(app: DMPApp? = nil) {
@@ -30,101 +24,166 @@ public class TabBarAPI: DMPContainerApi {
 
     private func setTabBarStyle(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let p = param.getMap()
-        let color = p.get("color") as? String
-        let selectedColor = p.get("selectedColor") as? String
-        let backgroundColor = p.get("backgroundColor") as? String
-        let borderStyle = p.get("borderStyle") as? String
-        DMPLog.bridge.debug("setTabBarStyle color=\(color ?? "") selectedColor=\(selectedColor ?? "") backgroundColor=\(backgroundColor ?? "") borderStyle=\(borderStyle ?? "")")
+        guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
+              let bundleConfig = app.getBundleAppConfig(),
+              var tabBarConfig = bundleConfig.tabBar
+        else {
+            TabBarAPI.fail(callback, "setTabBarStyle", "tabBar not configured")
+            return DMPAsyncResult()
+        }
+
+        let color = p.getString(key: "color")
+        let selectedColor = p.getString(key: "selectedColor")
+        let backgroundColor = p.getString(key: "backgroundColor")
+        let borderStyle = p.getString(key: "borderStyle")
+
+        tabBarConfig.color = color ?? tabBarConfig.color
+        tabBarConfig.selectedColor = selectedColor ?? tabBarConfig.selectedColor
+        tabBarConfig.backgroundColor = backgroundColor ?? tabBarConfig.backgroundColor
+        if borderStyle == "black" || borderStyle == "white" {
+            tabBarConfig.borderStyle = borderStyle!
+        }
+        bundleConfig.tabBar = tabBarConfig
 
         DispatchQueue.main.async {
-            TabBarAPI.currentTabBar(env: env)?.applyStyle(
-                color: color,
-                selectedColor: selectedColor,
-                backgroundColor: backgroundColor,
-                borderStyle: borderStyle
+            TabBarAPI.currentContainer(app: app)?.setTabBarStyle(
+                color: color, selectedColor: selectedColor,
+                backgroundColor: backgroundColor, borderStyle: borderStyle
             )
+            TabBarAPI.success(callback, "setTabBarStyle")
         }
-        TabBarAPI.replySuccess(callback: callback, method: "setTabBarStyle")
         return DMPAsyncResult()
     }
 
     private func setTabBarItem(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let p = param.getMap()
-        let index = (p.get("index") as? Int) ?? -1
-        let text = p.get("text") as? String
-        let iconPath = p.get("iconPath") as? String
-        let selectedIconPath = p.get("selectedIconPath") as? String
-        DMPLog.bridge.debug("setTabBarItem index=\(index) text=\(text ?? "")")
+        guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
+              let bundleConfig = app.getBundleAppConfig(),
+              let tabBarConfig = bundleConfig.tabBar
+        else {
+            TabBarAPI.fail(callback, "setTabBarItem", "tabBar not configured")
+            return DMPAsyncResult()
+        }
+
+        let index = TabBarAPI.intFromParam(p.get("index"))
+        guard index >= 0, index < tabBarConfig.list.count else {
+            TabBarAPI.fail(callback, "setTabBarItem", "invalid index \(index)")
+            return DMPAsyncResult()
+        }
+
+        let text = p.getString(key: "text")
+        let iconPath = p.getString(key: "iconPath")
+        let selectedIconPath = p.getString(key: "selectedIconPath")
+
+        var item = tabBarConfig.list[index]
+        if let t = text { item.text = t }
+        if let i = iconPath { item.iconPath = i }
+        if let s = selectedIconPath { item.selectedIconPath = s }
+        tabBarConfig.list[index] = item
 
         DispatchQueue.main.async {
-            TabBarAPI.currentTabBar(env: env)?.updateItem(
-                index: index,
-                text: text,
-                iconPath: iconPath,
-                selectedIconPath: selectedIconPath
+            TabBarAPI.currentContainer(app: app)?.setTabBarItem(
+                index: index, text: text, iconPath: iconPath, selectedIconPath: selectedIconPath
             )
+            TabBarAPI.success(callback, "setTabBarItem")
         }
-        TabBarAPI.replySuccess(callback: callback, method: "setTabBarItem")
         return DMPAsyncResult()
     }
 
     private func showTabBar(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        DMPLog.bridge.debug("showTabBar")
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
         DispatchQueue.main.async {
-            TabBarAPI.currentTabBar(env: env)?.isHidden = false
+            TabBarAPI.currentContainer(app: app)?.setTabBarVisible(true)
+            TabBarAPI.success(callback, "showTabBar")
         }
-        TabBarAPI.replySuccess(callback: callback, method: "showTabBar")
         return DMPAsyncResult()
     }
 
     private func hideTabBar(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        DMPLog.bridge.debug("hideTabBar")
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
         DispatchQueue.main.async {
-            TabBarAPI.currentTabBar(env: env)?.isHidden = true
+            TabBarAPI.currentContainer(app: app)?.setTabBarVisible(false)
+            TabBarAPI.success(callback, "hideTabBar")
         }
-        TabBarAPI.replySuccess(callback: callback, method: "hideTabBar")
         return DMPAsyncResult()
     }
 
     private func setTabBarBadge(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let p = param.getMap()
-        DMPLog.bridge.debug("setTabBarBadge index=\(p.get("index") ?? "") text=\(p.get("text") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: "setTabBarBadge")
-        return DMPAsyncResult()
+        return handleIndexedAction(param, env, callback, "setTabBarBadge") { container, index, p in
+            container.setTabBarBadge(index: index, text: p.getString(key: "text") ?? "")
+        }
     }
 
     private func removeTabBarBadge(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let p = param.getMap()
-        DMPLog.bridge.debug("removeTabBarBadge index=\(p.get("index") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: "removeTabBarBadge")
-        return DMPAsyncResult()
+        return handleIndexedAction(param, env, callback, "removeTabBarBadge") { container, index, _ in
+            container.removeTabBarBadge(index: index)
+        }
     }
 
     private func showTabBarRedDot(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let p = param.getMap()
-        DMPLog.bridge.debug("showTabBarRedDot index=\(p.get("index") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: "showTabBarRedDot")
-        return DMPAsyncResult()
+        return handleIndexedAction(param, env, callback, "showTabBarRedDot") { container, index, _ in
+            container.showTabBarRedDot(index: index)
+        }
     }
 
     private func hideTabBarRedDot(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
+        return handleIndexedAction(param, env, callback, "hideTabBarRedDot") { container, index, _ in
+            container.hideTabBarRedDot(index: index)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func handleIndexedAction(
+        _ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?,
+        _ apiName: String,
+        action: @escaping (DMPTabBarContainerController, Int, DMPMap) -> Void
+    ) -> DMPAPIResult {
         let p = param.getMap()
-        DMPLog.bridge.debug("hideTabBarRedDot index=\(p.get("index") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: "hideTabBarRedDot")
+        guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
+              let listCount = app.getBundleAppConfig()?.tabBar?.list.count, listCount > 0
+        else {
+            TabBarAPI.fail(callback, apiName, "tabBar not configured")
+            return DMPAsyncResult()
+        }
+
+        let index = TabBarAPI.intFromParam(p.get("index"))
+        guard index >= 0, index < listCount else {
+            TabBarAPI.fail(callback, apiName, "invalid index \(index)")
+            return DMPAsyncResult()
+        }
+
+        DispatchQueue.main.async {
+            if let container = TabBarAPI.currentContainer(app: app) {
+                action(container, index, p)
+            }
+            TabBarAPI.success(callback, apiName)
+        }
         return DMPAsyncResult()
     }
 
-    private static func replySuccess(callback: DMPBridgeCallback?, method: String) {
+    private static func currentContainer(app: DMPApp?) -> DMPTabBarContainerController? {
+        guard let nav = app?.getNavigator()?.navigationController else { return nil }
+        let vcs = nav.viewControllers
+        if let top = vcs.last as? DMPTabBarContainerController { return top }
+        return vcs.last { $0 is DMPTabBarContainerController } as? DMPTabBarContainerController
+    }
+
+    private static func success(_ callback: DMPBridgeCallback?, _ apiName: String) {
         let result = DMPMap()
-        result.set("errMsg", "\(method):ok")
+        result.set("errMsg", "\(apiName):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
     }
 
-    /// 取当前 nav 栈里的 DMPTabBarContainerController 持有的 tabBarView。
-    fileprivate static func currentTabBar(env: DMPBridgeEnv) -> DMPTabBarView? {
-        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
-        guard let navController = app?.getNavigator()?.navigationController else { return nil }
-        let container = navController.viewControllers.compactMap { $0 as? DMPTabBarContainerController }.first
-        return container?.tabBarView
+    private static func fail(_ callback: DMPBridgeCallback?, _ apiName: String, _ message: String) {
+        DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "\(apiName):fail \(message)")
+    }
+
+    private static func intFromParam(_ value: Any?) -> Int {
+        if let i = value as? Int { return i }
+        if let n = value as? NSNumber { return n.intValue }
+        if let d = value as? Double, d.rounded(.towardZero) == d { return Int(d) }
+        if let s = value as? String, let i = Int(s) { return i }
+        return -1
     }
 }

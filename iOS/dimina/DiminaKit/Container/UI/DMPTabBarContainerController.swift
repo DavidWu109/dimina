@@ -202,6 +202,36 @@ public class DMPTabBarContainerController: UIViewController {
 
         // hidesBar 由 child 在 applyNavigationStyleToSelfNavigationItem 里同步过 nav controller 了
     }
+
+    // MARK: - TabBar API methods (called by TabBarAPI)
+
+    public func setTabBarStyle(color: String?, selectedColor: String?, backgroundColor: String?, borderStyle: String?) {
+        tabBarView.applyStyle(color: color, selectedColor: selectedColor, backgroundColor: backgroundColor, borderStyle: borderStyle)
+    }
+
+    public func setTabBarItem(index: Int, text: String?, iconPath: String?, selectedIconPath: String?) {
+        tabBarView.updateItem(index: index, text: text, iconPath: iconPath, selectedIconPath: selectedIconPath)
+    }
+
+    public func setTabBarVisible(_ visible: Bool) {
+        tabBarView.isHidden = !visible
+    }
+
+    public func setTabBarBadge(index: Int, text: String) {
+        tabBarView.setBadge(index: index, text: text)
+    }
+
+    public func removeTabBarBadge(index: Int) {
+        tabBarView.removeBadge(index: index)
+    }
+
+    public func showTabBarRedDot(index: Int) {
+        tabBarView.showRedDot(index: index)
+    }
+
+    public func hideTabBarRedDot(index: Int) {
+        tabBarView.hideRedDot(index: index)
+    }
 }
 
 // MARK: - TabBar delegate

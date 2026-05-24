@@ -160,9 +160,9 @@ public class DMPTabBarConfig {
 
 public struct DMPTabBarItem {
     public let pagePath: String
-    public let text: String
-    public let iconPath: String?
-    public let selectedIconPath: String?
+    public var text: String
+    public var iconPath: String?
+    public var selectedIconPath: String?
 
     public init?(json: [String: Any]) {
         guard let pagePath = json["pagePath"] as? String else { return nil }
