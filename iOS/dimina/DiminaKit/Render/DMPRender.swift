@@ -81,93 +81,47 @@ public class DMPRender: DMPWebViewDelegate {
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load completion event
     public func webViewDidFinishLoad(webViewId: Int) {
-        print("🔴 DMPRender: WebView load completed \(webViewId)")
+        DMPLog.render.info("webViewDidFinishLoad id=\(webViewId)")
         let webview = webviewsMap[webViewId]
 
         setupJSBridge(webViewId: webViewId)
 
         guard let webview = webview else {
-            print("🟡DMPRender: WebView (ID: \(webViewId)) not found in map")
+            DMPLog.render.warn("webview id=\(webViewId) not found in map, skip resource loading")
             return
         }
-        
+
         if webview.poolState != .loading {
-            print("🟡 DMPRender: WebView (ID: \(webViewId)) is not in loading state (\(webview.poolState.description)), skip resource loading")
+            DMPLog.render.warn("webview id=\(webViewId) not in loading state (\(webview.poolState.description)), skip resource loading")
             return
         }
-        
+
         let currentPagePath = webview.getPagePath()
         if currentPagePath.isEmpty || currentPagePath == "resetting" {
-            print("🟡 DMPRender: WebView (ID: \(webViewId)) has invalid page path '\(currentPagePath)', skip resource loading")
+            DMPLog.render.warn("webview id=\(webViewId) invalid pagePath '\(currentPagePath)', skip resource loading")
             return
         }
-        
-        print("✅ DMPRender: WebView (ID: \(webViewId)) ready for resource loading with path: \(currentPagePath)")
+
+        DMPLog.render.info("webview id=\(webViewId) ready, loading resources for path=\(currentPagePath)")
         self.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath);
         self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath);
 
-        // 诊断：获取完整 DOM 结构（延迟 8 秒等数据加载）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            webview.executeJavaScript("""
-                (function() {
-                    function getTree(el, depth) {
-                        if (!el || depth > 10) return null;
-                        var tag = el.tagName ? el.tagName.toLowerCase() : '#text';
-                        var cls = el.className || '';
-                        var text = '';
-                        if (el.nodeType === 3) text = el.textContent.trim().substring(0, 200);
-                        var children = [];
-                        if (el.childNodes) {
-                            for (var i = 0; i < el.childNodes.length && i < 30; i++) {
-                                var c = getTree(el.childNodes[i], depth + 1);
-                                if (c) children.push(c);
-                            }
-                        }
-                        var src = el.getAttribute ? (el.getAttribute('src') || '') : '';
-                        var style = el.getAttribute ? (el.getAttribute('style') || '') : '';
-                        var display = '';
-                        try { display = getComputedStyle(el).display; } catch(e) {}
-                        return {tag: tag, cls: typeof cls === 'string' ? cls.substring(0, 100) : '', text: text, src: src.substring(0, 200), style: style.substring(0, 150), display: display, children: children};
-                    }
-                    var htmlFS = getComputedStyle(document.documentElement).fontSize;
-                    var qc = document.querySelector('.question-content');
-                    var qcHTML = qc ? qc.innerHTML.substring(0, 2000) : 'NOT FOUND';
-                    // 检查 JS 错误
-                    var errors = window.__dimina_errors || [];
-                    // 检查 console.error 输出
-                    var consoleErrors = window.__console_errors || [];
-                    return JSON.stringify({htmlFontSize: htmlFS, questionContentHTML: qcHTML, errors: errors, consoleErrors: consoleErrors});
-                })()
-            """) { result, error in
-                let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_jsdiag.log")
-                let line = "\(result ?? "nil")"
-                try? line.data(using: .utf8)?.write(to: logFile)
-            }
-        }
+        scheduleDOMDiagnostics(webview: webview, webViewId: webViewId)
 
         webview.poolState = .ready
-        print("✅ DMPRender: WebView (ID: \(webViewId)) marked as ready")
+        DMPLog.render.info("webview id=\(webViewId) marked as ready")
     }
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load failure event
     public func webViewDidFailLoad(webViewId: Int, error: Error) {
-        print("🔴 DMPRender: WebView load failed: \(error.localizedDescription)")
+        let ns = error as NSError
+        DMPLog.render.error("webViewDidFailLoad id=\(webViewId) domain=\(ns.domain) code=\(ns.code) msg=\(error.localizedDescription)")
     }
 
     public func fromContainer(data: DMPMap, webViewId: Int) {
         let webview = webviewsMap[webViewId]
         let dataString = data.toJsonString()
-
-        // 写文件日志
-        let logFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dimina_render.log")
-        let line = "fromContainer webViewId=\(webViewId) data=\(dataString)\n"
-        if let logData = line.data(using: .utf8) {
-            if let handle = try? FileHandle(forWritingTo: logFile) {
-                handle.seekToEndOfFile()
-                handle.write(logData)
-                handle.closeFile()
-            } else { try? logData.write(to: logFile) }
-        }
+        DMPLog.bridge.debug("container→render webViewId=\(webViewId) data=\(dataString)")
 
         DispatchQueue.main.async {
             webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(dataString))", completionHandler: nil)
@@ -176,10 +130,80 @@ public class DMPRender: DMPWebViewDelegate {
 
     public func fromService(msg: String, webViewId: Int) {
         let webview = webviewsMap[webViewId]
-        
+        DMPLog.bridge.debug("service→render webViewId=\(webViewId) msg=\(msg)")
+
         DispatchQueue.main.async {
             webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(msg))", completionHandler: nil)
         }
     }
+
+    /// 启动后延迟 dump WebView 实际 DOM/Vue 状态，定位白屏。
+    private func scheduleDOMDiagnostics(webview: DMPWebview, webViewId: Int) {
+        // 跑两次：3s 看异步数据是否到位，10s 看是否最终仍为空。
+        for delay in [3.0, 10.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak webview] in
+                webview?.executeJavaScript(Self.domDiagnosticScript) { result, error in
+                    if let error = error {
+                        DMPLog.render.error("DOM diag id=\(webViewId) t=\(delay)s error=\(error)")
+                        return
+                    }
+                    let json = (result as? String) ?? "nil"
+                    DMPLog.render.info("DOM diag id=\(webViewId) t=\(delay)s \(json)")
+                }
+            }
+        }
+    }
+
+    private static let domDiagnosticScript = """
+    (function() {
+        try {
+            var html = document.documentElement;
+            var body = document.body;
+            var htmlFS = getComputedStyle(html).fontSize;
+            var htmlSize = html.getBoundingClientRect();
+            var bodySize = body ? body.getBoundingClientRect() : null;
+            var bodyChildren = [];
+            if (body) {
+                for (var i = 0; i < body.children.length && i < 10; i++) {
+                    var c = body.children[i];
+                    var r = c.getBoundingClientRect();
+                    var cs = getComputedStyle(c);
+                    bodyChildren.push({
+                        tag: c.tagName.toLowerCase(),
+                        id: c.id || '',
+                        cls: (c.className || '').toString().substring(0, 80),
+                        w: r.width|0, h: r.height|0,
+                        display: cs.display,
+                        visibility: cs.visibility,
+                        opacity: cs.opacity,
+                        childCount: c.children.length
+                    });
+                }
+            }
+            // 抓 page-frame / mp-page-frame / app-root 这类 dimina 标志性容器
+            var pageFrame = document.querySelector('page-frame, mp-page-frame, .page-frame, #pageFrame, app');
+            var pageFrameHTML = pageFrame ? pageFrame.outerHTML.substring(0, 1500) : 'NOT FOUND';
+            // 抓 JS 全局错误
+            var errors = (window.__diminaErrors || []).slice(-10);
+            // 抓最近 fetch/XHR 失败（如果有埋点）
+            var netErrors = (window.__diminaNetworkErrors || []).slice(-10);
+            // visibility / 是否在 DOM 里
+            var bodyHTMLLen = body ? body.innerHTML.length : -1;
+            return JSON.stringify({
+                htmlFontSize: htmlFS,
+                htmlRect: {w: htmlSize.width|0, h: htmlSize.height|0},
+                bodyRect: bodySize ? {w: bodySize.width|0, h: bodySize.height|0} : null,
+                bodyHTMLLen: bodyHTMLLen,
+                bodyChildren: bodyChildren,
+                pageFrame: pageFrameHTML,
+                errors: errors,
+                netErrors: netErrors,
+                url: location.href
+            });
+        } catch (e) {
+            return JSON.stringify({diagError: String(e), stack: e.stack || ''});
+        }
+    })()
+    """
 }
 

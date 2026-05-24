@@ -318,6 +318,8 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         // Use loadFileURL to load files and allow access to entire sandbox directory
         let fileURL = URL(fileURLWithPath: DMPSandboxManager.sdkPageFramePath())
         let allowingReadAccessTo = URL(fileURLWithPath: DMPSandboxManager.sandboxPath())
+        let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
+        DMPLog.render.info("loadPageFrame id=\(webViewId) file=\(fileURL.path) exists=\(fileExists) allowAccess=\(allowingReadAccessTo.path)")
         webView.loadFileURL(fileURL, allowingReadAccessTo: allowingReadAccessTo)
     }
 
@@ -359,24 +361,34 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     // WKNavigationDelegate implementation - Use delegate pattern instead of direct dependency
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        print("🔴 DMPWebview: Web page load completed \(webViewId)")
+        DMPLog.render.info("didFinish navigation id=\(webViewId) url=\(webView.url?.absoluteString ?? "nil")")
         // Notify web page load completion through delegate callback
         delegate?.webViewDidFinishLoad(webViewId: self.webViewId)
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        print("Web page load failed: \(error.localizedDescription)")
-        // Add detailed error information logging
-        let errorInfo: [String: Any] = [
-            "message": error.localizedDescription,
-            "domain": (error as NSError).domain,
-            "code": (error as NSError).code,
-            "userInfo": (error as NSError).userInfo,
-            "webViewId": self.webViewId
-        ]
-        print("Detailed error information: \(errorInfo)")
+        let ns = error as NSError
+        DMPLog.render.error("didFail navigation id=\(webViewId) domain=\(ns.domain) code=\(ns.code) msg=\(error.localizedDescription) userInfo=\(ns.userInfo)")
         // Notify web page load failure through delegate callback
         delegate?.webViewDidFailLoad(webViewId: self.webViewId, error: error)
+    }
+
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let ns = error as NSError
+        DMPLog.render.error("didFailProvisionalNavigation id=\(webViewId) domain=\(ns.domain) code=\(ns.code) msg=\(error.localizedDescription)")
+        delegate?.webViewDidFailLoad(webViewId: self.webViewId, error: error)
+    }
+
+    /// 兜底：WebContent process 被 OS 在低内存或长时间 suspended 后回收时触发。
+    /// 此时 WKWebView 对象还活着但内容是空的，需要重新 loadPageFrame() 把 mini-app 页面拉回来。
+    ///
+    /// 主要发生在 tabBar 容器的非活跃 tab 长时间 suspended 的场景（参见 docs/TabBar-Memory-Model.md）。
+    /// 已知风险：service 端如果对同一 bridgeId 不能幂等响应第二次 resourceLoaded → createInstance，
+    /// 重载后可能进入异常状态。先以最小改动重载 render 端，service 端幂等性待观察。
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        DMPLog.render.error("webContentProcessDidTerminate id=\(webViewId) pagePath=\(pagePath) — reloading pageFrame")
+        poolState = .loading
+        loadPageFrame()
     }
 
     // Use custom URL scheme to handle resource loading
@@ -401,7 +413,13 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
 
     public func setPagePath(pagePath: String) {
-        self.pagePath = pagePath
+        // 防御：pagePath 用于 mini-app 的资源文件名转换（e.g. pages_x_y.css），
+        // 不能带 query。任何 ?xxx 都剥掉，query 通过 setQuery 单独传。
+        if let qIdx = pagePath.firstIndex(of: "?") {
+            self.pagePath = String(pagePath[..<qIdx])
+        } else {
+            self.pagePath = pagePath
+        }
     }
 
     public func getQuery() -> [String: Any] {

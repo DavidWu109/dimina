@@ -63,9 +63,15 @@ public class DMPWebViewOptimizer {
     // MARK: - Memory management optimization
     
     private func applyMemoryOptimizations(to config: WKWebViewConfiguration) {
-        // Enable automatic cleanup
-        config.suppressesIncrementalRendering = true
-        
+        // 故意偏离上游：上游设 true。我们设 false。
+        // 原因：sharedProcessPool（也是上游设计）的 WebContent process 数到 iOS 限制后
+        // 新 WebView 共用已有 process，命中坏 process 时 render pipeline 卡死。
+        // suppressesIncrementalRendering=true 让 WKWebView 在完整 render 完成前一片不显示，
+        // pipeline 一卡 → 永久纯白没有任何中间态，用户无感知页面在工作。
+        // 设 false → 渐进渲染，即使 render pipeline 部分卡，能看到已加载的部分。配合 L2 watchdog 一起。
+        // 详见 dimina/docs/Push-Page-Memory-Model.md
+        config.suppressesIncrementalRendering = false
+
         // iOS 14+ memory optimization
         if #available(iOS 14.0, *) {
             // Enable background content restrictions
