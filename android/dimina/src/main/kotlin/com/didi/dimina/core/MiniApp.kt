@@ -27,6 +27,7 @@ import com.didi.dimina.api.ui.MenuApi
 import com.didi.dimina.api.ui.NavigationBarApi
 import com.didi.dimina.api.ui.NativeComponentApi
 import com.didi.dimina.api.ui.ScrollApi
+import com.didi.dimina.api.ui.TabBarApi
 import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.common.LogUtils
@@ -197,6 +198,7 @@ class MiniApp private constructor() {
         InteractionApi().registerWith(apiRegistry)
         NavigationBarApi().registerWith(apiRegistry)
         ScrollApi().registerWith(apiRegistry)
+        TabBarApi().registerWith(apiRegistry)
         MenuApi().registerWith(apiRegistry)
         NativeComponentApi().registerWith(apiRegistry)
 
