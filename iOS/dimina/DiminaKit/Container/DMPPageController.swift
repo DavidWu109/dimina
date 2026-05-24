@@ -268,7 +268,17 @@ public class DMPPageController: UIViewController {
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
 
-        let capsuleView = makeCapsuleButton()
+        let capsuleView: UIView
+        let useHostOverlay: Bool
+        if let overlayProvider = app?.pageOverlayProvider,
+           let overlayView = overlayProvider.overlayView(for: self, isRoot: isRoot) {
+            overlayView.translatesAutoresizingMaskIntoConstraints = false
+            capsuleView = overlayView
+            useHostOverlay = true
+        } else {
+            capsuleView = makeCapsuleButton()
+            useHostOverlay = false
+        }
         let menuButtonRect = MenuAPI.getMenuButtonBoundingClientRect()
         let capsuleWidth = CGFloat(menuButtonRect.getDouble(key: "width") ?? 87)
         let capsuleHeight = CGFloat(menuButtonRect.getDouble(key: "height") ?? 32)
@@ -305,9 +315,14 @@ public class DMPPageController: UIViewController {
 
             capsuleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             capsuleView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -capsuleTrailing),
-            capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth),
-            capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight),
         ])
+
+        if useHostOverlay {
+            // 宿主 overlay 自适应尺寸
+        } else {
+            capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth).isActive = true
+            capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight).isActive = true
+        }
 
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
@@ -573,14 +588,31 @@ public class DMPPageController: UIViewController {
     }
 
     private func updateCustomCapsuleButton(darkStyle: Bool) {
-        customNavigationCapsuleView?.backgroundColor = .white
-        let borderColor = UIColor(red: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
-        customNavigationCapsuleView?.layer.borderColor = borderColor.cgColor
-        customNavigationCapsuleSeparatorView?.backgroundColor = UIColor(red: 233 / 255, green: 233 / 255, blue: 233 / 255, alpha: 1)
+        if darkStyle {
+            customNavigationCapsuleView?.backgroundColor = UIColor(white: 0.2, alpha: 0.6)
+            customNavigationCapsuleView?.layer.borderColor = UIColor(white: 1, alpha: 0.25).cgColor
+            customNavigationCapsuleSeparatorView?.backgroundColor = UIColor(white: 1, alpha: 0.3)
+            let iconColor = UIColor.white
+            customNavigationCapsuleMoreButton?.setImage(makeCapsuleMoreImage(color: iconColor), for: .normal)
+            customNavigationCapsuleCloseButton?.setImage(makeCapsuleCloseImage(color: iconColor), for: .normal)
+        } else {
+            customNavigationCapsuleView?.backgroundColor = UIColor(white: 1, alpha: 0.8)
+            customNavigationCapsuleView?.layer.borderColor = UIColor(red: 229/255, green: 229/255, blue: 229/255, alpha: 1).cgColor
+            customNavigationCapsuleSeparatorView?.backgroundColor = UIColor(red: 233/255, green: 233/255, blue: 233/255, alpha: 1)
+            let iconColor = UIColor(red: 31/255, green: 31/255, blue: 31/255, alpha: 1)
+            customNavigationCapsuleMoreButton?.setImage(makeCapsuleMoreImage(color: iconColor), for: .normal)
+            customNavigationCapsuleCloseButton?.setImage(makeCapsuleCloseImage(color: iconColor), for: .normal)
+        }
     }
 
     @objc private func capsuleMoreButtonTapped() {
         showMiniProgramMenu()
+    }
+
+    /// 关闭整个小程序：一次性移除所有小程序 VC，动画完成后 destroy app。
+    /// 内置胶囊和宿主 overlay 都调这个方法。
+    public func closeMiniProgram() {
+        capsuleCloseButtonTapped()
     }
 
     @objc private func capsuleCloseButtonTapped() {
@@ -603,13 +635,16 @@ public class DMPPageController: UIViewController {
                 return
             }
 
+            var remaining = navigationController.viewControllers
+            remaining.removeAll { $0 is DMPPageController || $0 is DMPTabBarContainerController }
             CATransaction.begin()
             CATransaction.setCompletionBlock {
                 appToDestroy?.destroy()
             }
-            navigationController.popToRootViewController(animated: true)
+            navigationController.setViewControllers(remaining, animated: true)
             CATransaction.commit()
         } else {
+            DMPLog.app.error("CLOSE-DEBUG [DMPPageController] → no navigationController, dismiss modal")
             dismiss(animated: true) {
                 appToDestroy?.destroy()
             }
@@ -923,7 +958,7 @@ public class DMPPageController: UIViewController {
                 // Set navigation bar button color
                 navigationController?.navigationBar.tintColor = textColor
 
-                DMPUIManager.updateWindowStyle(isDarkTheme: darkStyle)
+                self.overrideUserInterfaceStyle = darkStyle ? .dark : .light
             }
         }
 
@@ -937,6 +972,9 @@ public class DMPPageController: UIViewController {
         if !isCustomNavigationStyle, let customNavigationBar = customNavigationBar {
             view.bringSubviewToFront(customNavigationBar)
         }
+        if let capsule = customNavigationCapsuleView {
+            view.bringSubviewToFront(capsule)
+        }
     }
 
     // Back button tap event
@@ -949,6 +987,10 @@ public class DMPPageController: UIViewController {
     }
 
     // Get WebView instance
+    public func getApp() -> DMPApp? {
+        return app
+    }
+
     public func getWebView() -> DMPWebview {
         return webview
     }
