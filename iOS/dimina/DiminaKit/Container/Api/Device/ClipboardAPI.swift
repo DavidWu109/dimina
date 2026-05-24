@@ -12,41 +12,39 @@ import UIKit
  * Device - Clipboard API
  */
 public class ClipboardAPI: DMPContainerApi {
-    
-    // API method names
-    private static let SET_CLIPBOARD_DATA = "setClipboardData"
-    private static let GET_CLIPBOARD_DATA = "getClipboardData"
-    
-    // Set clipboard data
-    @BridgeMethod(SET_CLIPBOARD_DATA)
-    var setClipboardData: DMPBridgeMethodHandler = { param, env, callback in
+
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("setClipboardData", handler: setClipboardData)
+        register("getClipboardData", handler: getClipboardData)
+    }
+
+    private func setClipboardData(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         guard let data = param.getMap().get("data") as? String else {
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(ClipboardAPI.SET_CLIPBOARD_DATA):fail data is required")
+            errorMap.set("errMsg", "setClipboardData:fail data is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "data is required")
-            return
+            return nil
         }
-        
+
         // 直接设置剪贴板内容
         UIPasteboard.general.string = data
-        
+
         let result = DMPMap()
-        result.set("errMsg", "\(ClipboardAPI.SET_CLIPBOARD_DATA):ok")
+        result.set("errMsg", "setClipboardData:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
-    
-    // Get clipboard data
-    @BridgeMethod(GET_CLIPBOARD_DATA)
-    var getClipboardData: DMPBridgeMethodHandler = { param, env, callback in
+
+    private func getClipboardData(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         // 直接获取剪贴板内容
         let clipboardData = UIPasteboard.general.string
-        
+
         let result = DMPMap()
         if let clipboardData = clipboardData {
             result.set("data", clipboardData)
         }
-        result.set("errMsg", "\(ClipboardAPI.GET_CLIPBOARD_DATA):ok")
+        result.set("errMsg", "getClipboardData:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }

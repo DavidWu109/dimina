@@ -16,17 +16,19 @@ import Foundation
 /// UI - TabBar API stubs
 public class TabBarAPI: DMPContainerApi {
 
-    private static let SET_TAB_BAR_STYLE   = "setTabBarStyle"
-    private static let SET_TAB_BAR_ITEM    = "setTabBarItem"
-    private static let SHOW_TAB_BAR        = "showTabBar"
-    private static let HIDE_TAB_BAR        = "hideTabBar"
-    private static let SET_TAB_BAR_BADGE   = "setTabBarBadge"
-    private static let REMOVE_TAB_BAR_BADGE = "removeTabBarBadge"
-    private static let SHOW_TAB_BAR_RED_DOT = "showTabBarRedDot"
-    private static let HIDE_TAB_BAR_RED_DOT = "hideTabBarRedDot"
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("setTabBarStyle", handler: setTabBarStyle)
+        register("setTabBarItem", handler: setTabBarItem)
+        register("showTabBar", handler: showTabBar)
+        register("hideTabBar", handler: hideTabBar)
+        register("setTabBarBadge", handler: setTabBarBadge)
+        register("removeTabBarBadge", handler: removeTabBarBadge)
+        register("showTabBarRedDot", handler: showTabBarRedDot)
+        register("hideTabBarRedDot", handler: hideTabBarRedDot)
+    }
 
-    @BridgeMethod(SET_TAB_BAR_STYLE)
-    var setTabBarStyle: DMPBridgeMethodHandler = { param, env, callback in
+    private func setTabBarStyle(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let p = param.getMap()
         let color = p.get("color") as? String
         let selectedColor = p.get("selectedColor") as? String
@@ -42,12 +44,11 @@ public class TabBarAPI: DMPContainerApi {
                 borderStyle: borderStyle
             )
         }
-        TabBarAPI.replySuccess(callback: callback, method: SET_TAB_BAR_STYLE)
+        TabBarAPI.replySuccess(callback: callback, method: "setTabBarStyle")
         return nil
     }
 
-    @BridgeMethod(SET_TAB_BAR_ITEM)
-    var setTabBarItem: DMPBridgeMethodHandler = { param, env, callback in
+    private func setTabBarItem(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let p = param.getMap()
         let index = (p.get("index") as? Int) ?? -1
         let text = p.get("text") as? String
@@ -63,59 +64,53 @@ public class TabBarAPI: DMPContainerApi {
                 selectedIconPath: selectedIconPath
             )
         }
-        TabBarAPI.replySuccess(callback: callback, method: SET_TAB_BAR_ITEM)
+        TabBarAPI.replySuccess(callback: callback, method: "setTabBarItem")
         return nil
     }
 
-    @BridgeMethod(SHOW_TAB_BAR)
-    var showTabBar: DMPBridgeMethodHandler = { _, env, callback in
+    private func showTabBar(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         DMPLog.bridge.debug("showTabBar")
         DispatchQueue.main.async {
             TabBarAPI.currentTabBar(env: env)?.isHidden = false
         }
-        TabBarAPI.replySuccess(callback: callback, method: SHOW_TAB_BAR)
+        TabBarAPI.replySuccess(callback: callback, method: "showTabBar")
         return nil
     }
 
-    @BridgeMethod(HIDE_TAB_BAR)
-    var hideTabBar: DMPBridgeMethodHandler = { _, env, callback in
+    private func hideTabBar(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         DMPLog.bridge.debug("hideTabBar")
         DispatchQueue.main.async {
             TabBarAPI.currentTabBar(env: env)?.isHidden = true
         }
-        TabBarAPI.replySuccess(callback: callback, method: HIDE_TAB_BAR)
+        TabBarAPI.replySuccess(callback: callback, method: "hideTabBar")
         return nil
     }
 
-    @BridgeMethod(SET_TAB_BAR_BADGE)
-    var setTabBarBadge: DMPBridgeMethodHandler = { param, _, callback in
+    private func setTabBarBadge(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let p = param.getMap()
         DMPLog.bridge.debug("setTabBarBadge index=\(p.get("index") ?? "") text=\(p.get("text") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: SET_TAB_BAR_BADGE)
+        TabBarAPI.replySuccess(callback: callback, method: "setTabBarBadge")
         return nil
     }
 
-    @BridgeMethod(REMOVE_TAB_BAR_BADGE)
-    var removeTabBarBadge: DMPBridgeMethodHandler = { param, _, callback in
+    private func removeTabBarBadge(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let p = param.getMap()
         DMPLog.bridge.debug("removeTabBarBadge index=\(p.get("index") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: REMOVE_TAB_BAR_BADGE)
+        TabBarAPI.replySuccess(callback: callback, method: "removeTabBarBadge")
         return nil
     }
 
-    @BridgeMethod(SHOW_TAB_BAR_RED_DOT)
-    var showTabBarRedDot: DMPBridgeMethodHandler = { param, _, callback in
+    private func showTabBarRedDot(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let p = param.getMap()
         DMPLog.bridge.debug("showTabBarRedDot index=\(p.get("index") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: SHOW_TAB_BAR_RED_DOT)
+        TabBarAPI.replySuccess(callback: callback, method: "showTabBarRedDot")
         return nil
     }
 
-    @BridgeMethod(HIDE_TAB_BAR_RED_DOT)
-    var hideTabBarRedDot: DMPBridgeMethodHandler = { param, _, callback in
+    private func hideTabBarRedDot(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let p = param.getMap()
         DMPLog.bridge.debug("hideTabBarRedDot index=\(p.get("index") ?? "")")
-        TabBarAPI.replySuccess(callback: callback, method: HIDE_TAB_BAR_RED_DOT)
+        TabBarAPI.replySuccess(callback: callback, method: "hideTabBarRedDot")
         return nil
     }
 

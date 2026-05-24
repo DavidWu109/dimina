@@ -16,30 +16,27 @@ import Foundation
  */
 public class FileSystemAPI: DMPContainerApi {
 
-    private static let GET_FILE_SYSTEM_MANAGER = "getFileSystemManager"
-    private static let FS_READ_FILE = "fsReadFile"
-    private static let FS_WRITE_FILE = "fsWriteFile"
-    private static let FS_MKDIR = "fsMkdir"
-    private static let FS_RMDIR = "fsRmdir"
-    private static let FS_UNLINK = "fsUnlink"
-    private static let FS_STAT = "fsStat"
-    private static let FS_ACCESS = "fsAccess"
-    private static let FS_READ_DIR = "fsReaddir"
-    private static let FS_COPY_FILE = "fsCopyFile"
-    private static let FS_RENAME = "fsRename"
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("getFileSystemManager", handler: getFileSystemManager)
+        register("fsReadFile", handler: fsReadFile)
+        register("fsWriteFile", handler: fsWriteFile)
+        register("fsMkdir", handler: fsMkdir)
+        register("fsRmdir", handler: fsRmdir)
+        register("fsUnlink", handler: fsUnlink)
+        register("fsStat", handler: fsStat)
+        register("fsAccess", handler: fsAccess)
+        register("fsReaddir", handler: fsReaddir)
+        register("fsCopyFile", handler: fsCopyFile)
+        register("fsRename", handler: fsRename)
+    }
 
-    // MARK: - getFileSystemManager（同步，返回确认）
-
-    @BridgeMethod(GET_FILE_SYSTEM_MANAGER)
-    var getFileSystemManager: DMPBridgeMethodHandler = { param, env, callback in
+    private func getFileSystemManager(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["result": true]))
         return nil
     }
 
-    // MARK: - readFile
-
-    @BridgeMethod(FS_READ_FILE)
-    var readFile: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsReadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let params = param.getMap()
         let filePath = params.getString(key: "filePath") ?? ""
         let encoding = params.getString(key: "encoding") ?? "utf8"
@@ -76,10 +73,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - writeFile
-
-    @BridgeMethod(FS_WRITE_FILE)
-    var writeFile: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsWriteFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let params = param.getMap()
         let filePath = params.getString(key: "filePath") ?? ""
         let dataString = params.getString(key: "data") ?? ""
@@ -114,10 +108,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - mkdir
-
-    @BridgeMethod(FS_MKDIR)
-    var mkdir: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsMkdir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let params = param.getMap()
         let dirPath = params.getString(key: "dirPath") ?? ""
         let recursive = params.get("recursive") as? Bool ?? false
@@ -134,10 +125,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - rmdir
-
-    @BridgeMethod(FS_RMDIR)
-    var rmdir: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsRmdir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let dirPath = param.getMap().getString(key: "dirPath") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(dirPath, appId: env.appId)
 
@@ -151,10 +139,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - unlink
-
-    @BridgeMethod(FS_UNLINK)
-    var unlink: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsUnlink(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let filePath = param.getMap().getString(key: "filePath") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
 
@@ -168,10 +153,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - stat
-
-    @BridgeMethod(FS_STAT)
-    var stat: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsStat(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let filePath = param.getMap().getString(key: "path") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
 
@@ -193,10 +175,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - access
-
-    @BridgeMethod(FS_ACCESS)
-    var access: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsAccess(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let filePath = param.getMap().getString(key: "path") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(filePath, appId: env.appId)
 
@@ -209,10 +188,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - readdir
-
-    @BridgeMethod(FS_READ_DIR)
-    var readdir: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsReaddir(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let dirPath = param.getMap().getString(key: "dirPath") ?? ""
         let resolvedPath = FileSystemAPI.resolvePath(dirPath, appId: env.appId)
 
@@ -228,10 +204,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - copyFile
-
-    @BridgeMethod(FS_COPY_FILE)
-    var copyFile: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsCopyFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let params = param.getMap()
         let srcPath = params.getString(key: "srcPath") ?? ""
         let destPath = params.getString(key: "destPath") ?? ""
@@ -251,10 +224,7 @@ public class FileSystemAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - rename
-
-    @BridgeMethod(FS_RENAME)
-    var rename: DMPBridgeMethodHandler = { param, env, callback in
+    private func fsRename(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let params = param.getMap()
         let oldPath = params.getString(key: "oldPath") ?? ""
         let newPath = params.getString(key: "newPath") ?? ""

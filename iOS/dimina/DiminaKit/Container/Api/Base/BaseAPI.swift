@@ -11,23 +11,22 @@ import Foundation
  * Base API implementation
  */
 public class BaseAPI: DMPContainerApi {
-    
-    // API method names
-    private static let CAN_I_USE = "canIUse"
-    
-    // Check if API, component, or parameter is available
-    @BridgeMethod(CAN_I_USE)
-    var canIUse: DMPBridgeMethodHandler = { param, env, callback in
+
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("canIUse", handler: canIUse)
+    }
+
+    private func canIUse(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         guard let schema = param.getMap().get("schema") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "canIUse:fail missing parameter schema")
             return false
         }
-        
+
         let registeredMethods = DMPContainerApi.getAllRegisteredMethods()
-        
+
         let isAvailable = registeredMethods.contains(schema)
-                
+
         return isAvailable
     }
-    
 }

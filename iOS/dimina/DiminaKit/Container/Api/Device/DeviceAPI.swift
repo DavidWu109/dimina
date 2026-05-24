@@ -12,43 +12,41 @@ import Foundation
  * Device API implementation
  */
 public class DeviceAPI: DMPContainerApi {
-    
-    // API method names
-    private static let GET_DEVICE_INFO = "getDeviceInfo"
-    private static let IS_DEBUG = "isDebug"
-    
-    // Get device information
-    @BridgeMethod(GET_DEVICE_INFO)
-    var getDeviceInfo: DMPBridgeMethodHandler = { param, env, callback in
+
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("getDeviceInfo", handler: getDeviceInfo)
+        register("isDebug", handler: isDebug)
+    }
+
+    private func getDeviceInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let result = DMPMap()
         let data = DMPMap()
-        
+
         // Note: These CGFloat extensions would need to be available or replaced with standard UIKit values
 //        let screenBounds = UIScreen.main.bounds
 //        let statusBarHeight = UIApplication.shared.statusBarFrame.height
 //        let navigationBarHeight: CGFloat = 44 // Standard navigation bar height
-//        
+//
 //        data.set("screenWidth", Int(screenBounds.width))
 //        data.set("screenHeight", Int(screenBounds.height))
 //        data.set("navigationBarHeight", Int(navigationBarHeight))
 //        data.set("statusBarHeight", Int(statusBarHeight))
-//        
+//
 //        result.set("data", data)
 //        DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return true
     }
-    
-    // Check if app is in debug mode
-    @BridgeMethod(IS_DEBUG)
-    var isDebug: DMPBridgeMethodHandler = { param, env, callback in
+
+    private func isDebug(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let result = DMPMap()
-        
+
         #if DEBUG
         let isDebugMode = true
         #else
         let isDebugMode = false
         #endif
-        
+
         result.set("data", isDebugMode)
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return true

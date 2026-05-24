@@ -18,22 +18,22 @@ import Foundation
  */
 public class RouteAPI: DMPContainerApi {
 
-    // API method names
-    private static let NAVIGATE_TO = "navigateTo"
-    private static let REDIRECT_TO = "redirectTo"
-    private static let NAVIGATE_BACK = "navigateBack"
-    private static let RE_LAUNCH = "reLaunch"
-    private static let SWITCH_TAB = "switchTab"
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("switchTab", handler: switchTab)
+        register("navigateTo", handler: navigateTo)
+        register("redirectTo", handler: redirectTo)
+        register("navigateBack", handler: navigateBack)
+        register("reLaunch", handler: reLaunch)
+    }
 
-    // tabBar 页面切换。语义：在 DMPTabBarContainerController 容器里换 selectedIndex，不动 nav 栈。
-    @BridgeMethod(SWITCH_TAB)
-    var switchTab: DMPBridgeMethodHandler = { param, env, callback in
+    private func switchTab(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail URL cannot be empty")
+            errorMap.set("errMsg", "switchTab:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return
+            return nil
         }
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
         let urlData = DMPUtil.queryPath(path: url)
@@ -42,9 +42,9 @@ public class RouteAPI: DMPContainerApi {
         // 校验是不是 tabBar 页面
         if let tabBar = app?.getBundleAppConfig()?.tabBar, !tabBar.contains(pagePath: pagePath) {
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail '\(pagePath)' is not a tabBar page")
+            errorMap.set("errMsg", "switchTab:fail '\(pagePath)' is not a tabBar page")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "not a tabBar page")
-            return
+            return nil
         }
 
         Task { @MainActor in
@@ -52,21 +52,18 @@ public class RouteAPI: DMPContainerApi {
         }
 
         let result = DMPMap()
-        result.set("errMsg", "\(RouteAPI.SWITCH_TAB):ok")
+        result.set("errMsg", "switchTab:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
 
-    // Navigate to a new page
-    @BridgeMethod(NAVIGATE_TO)
-    var navigateTo: DMPBridgeMethodHandler = { param, env, callback in
+    private func navigateTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
-            // Error handling for empty URL
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(RouteAPI.NAVIGATE_TO):fail URL cannot be empty")
+            errorMap.set("errMsg", "navigateTo:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return
+            return nil
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
@@ -81,21 +78,18 @@ public class RouteAPI: DMPContainerApi {
         }
 
         let result = DMPMap()
-        result.set("errMsg", "\(RouteAPI.NAVIGATE_TO):ok")
+        result.set("errMsg", "navigateTo:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
 
-    // Replace current page with a new one
-    @BridgeMethod(REDIRECT_TO)
-    var redirectTo: DMPBridgeMethodHandler = { param, env, callback in
+    private func redirectTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
-            // Error handling for empty URL
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(RouteAPI.REDIRECT_TO):fail URL cannot be empty")
+            errorMap.set("errMsg", "redirectTo:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return
+            return nil
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
@@ -109,39 +103,32 @@ public class RouteAPI: DMPContainerApi {
         }
 
         let result = DMPMap()
-        result.set("errMsg", "\(RouteAPI.REDIRECT_TO):ok")
+        result.set("errMsg", "redirectTo:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
 
-    // Navigate back to the previous page
-    @BridgeMethod(NAVIGATE_BACK)
-    var navigateBack: DMPBridgeMethodHandler = { param, env, callback in
+    private func navigateBack(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
-        // 获取当前应用
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
-        
+
         Task { @MainActor in
             app?.getNavigator()?.navigateBack(delta: param.getInt(key: "delta") ?? 1)
         }
-        
-        // 返回成功响应
+
         let result = DMPMap()
-        result.set("errMsg", "\(RouteAPI.NAVIGATE_BACK):ok")
+        result.set("errMsg", "navigateBack:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
 
-    // Close all pages and open a specific page
-    @BridgeMethod(RE_LAUNCH)
-    var relaunch: DMPBridgeMethodHandler = { param, env, callback in
+    private func reLaunch(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
         guard let url = param.get("url") as? String, !url.isEmpty else {
-            // Error handling for empty URL
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(RouteAPI.RE_LAUNCH):fail URL cannot be empty")
+            errorMap.set("errMsg", "reLaunch:fail URL cannot be empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
-            return
+            return nil
         }
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
@@ -155,7 +142,7 @@ public class RouteAPI: DMPContainerApi {
         }
 
         let result = DMPMap()
-        result.set("errMsg", "\(RouteAPI.RE_LAUNCH):ok")
+        result.set("errMsg", "reLaunch:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }

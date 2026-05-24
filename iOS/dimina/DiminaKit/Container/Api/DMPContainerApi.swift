@@ -32,28 +32,22 @@ public typealias DMPBridgeCallback = (_ args: DMPMap, _ cbType: DMPBridgeCallbac
 // 定义桥接方法处理程序类型
 public typealias DMPBridgeMethodHandler = (_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any?
 
-// 自定义属性
+// @BridgeMethod 仍保留供 EchoWebKit 等外部 pod 使用。
+// dimina 内置 API 已全量迁移到 init + register() 实例方法模式。
 @propertyWrapper
 public struct BridgeMethod {
     public let name: String
     public var wrappedValue: DMPBridgeMethodHandler
-    
+
     public init(_ name: String) {
         self.name = name
         self.wrappedValue = { _, _, _ in }
-        DMPLog.bridge.info("BridgeMethod init(name) called: \(name) — registering EMPTY handler!")
         DMPContainerApi.registerMethod(name: name)
     }
 
     public init(wrappedValue: @escaping DMPBridgeMethodHandler, _ name: String) {
         self.name = name
         self.wrappedValue = wrappedValue
-        if name == "showModal" {
-            let stack = Thread.callStackSymbols.prefix(10).joined(separator: " | ")
-            DMPLog.bridge.info("BridgeMethod init(wrappedValue,name): \(name) STACK: \(stack)")
-        } else {
-            DMPLog.bridge.info("BridgeMethod init(wrappedValue,name): \(name)")
-        }
         DMPContainerApi.registerMethod(name: name, handler: wrappedValue)
     }
 }
@@ -77,7 +71,7 @@ public class DMPContainerApi: NSObject {
     }
     
     public static func create(app: DMPApp? = nil) -> DMPContainerApi {
-        // 1. 注册内置 API（DMPContainerApi 子类，直接实例化注册 @BridgeMethod）
+        // 1. 注册内置 API（DMPContainerApi 子类，init 里通过 register() 注册 handler）
         DMPLog.bridge.debug("registering built-in APIs")
         _ = RouteAPI(app: app)
         _ = NetworkAPI(app: app)
@@ -146,7 +140,7 @@ public class DMPContainerApi: NSObject {
         for (typeName, apiType) in registeredAPITypes {
             print("初始化API类型: \(typeName)")
             
-            // 创建API实例，这会触发@BridgeMethod注解的自动注册
+            // 创建API实例，init 中的 register() 调用会注册 handler
             if let apiClass = apiType as? NSObject.Type {
                 let _ = apiClass.init()
             }
@@ -220,6 +214,10 @@ public class DMPContainerApi: NSObject {
             bridgeHandlerMap[name] = handler
         }
     }
+
+    public func register(_ name: String, handler: @escaping DMPBridgeMethodHandler) {
+        DMPContainerApi.registerMethod(name: name, handler: handler)
+    }
     
     public static func getHandler(for methodName: String) -> DMPBridgeMethodHandler? {
         return bridgeHandlerMap[methodName]
@@ -276,82 +274,3 @@ public class DMPContainerApi: NSObject {
     }
 }
 
-// MARK: - 使用示例
-/*
- 
- 如何使用 @BridgeMethod 注解和新的类型注册系统：
- 
- 1. 创建自定义API类，实现 BridgeMethodProtocol：
- 
- class MyCustomAPI: BridgeMethodProtocol {
-     // 使用 @BridgeMethod 注解自动注册方法
-     @BridgeMethod("myCustomMethod")
-     var myCustomMethod: DMPBridgeMethodHandler = { param, env, callback in
-         // 实现你的自定义逻辑
-         let result = DMPMap()
-         result.set("message", "Hello from custom API!")
-         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-         return nil
-     }
-     
-     @BridgeMethod("anotherMethod")
-     var anotherMethod: DMPBridgeMethodHandler = { param, env, callback in
-         // 另一个自定义方法
-         let result = DMPMap()
-         result.set("data", ["custom": "value"])
-         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-         return nil
-     }
- }
- 
- 2. 注册自定义API类型（不创建实例）：
- 
- // 单个注册
- DMPContainerApi.registerCustomAPI(MyCustomAPI.self)
- 
- // 批量注册
- DMPContainerApi.registerCustomAPITypes([MyCustomAPI.self, AnotherAPI.self])
- 
- 3. 在需要时初始化所有API：
- 
- // 这通常在容器创建时调用，会自动创建所有已注册API的实例
- DMPContainerApi.initializeAllAPIs(app: app)
- 
- 4. 验证注册结果：
- 
- let apiTypes = DMPContainerApi.getAllRegisteredAPITypes()
- print("已注册的API类型: \(apiTypes)")
- 
- let apiTypeCount = DMPContainerApi.getRegisteredAPITypeCount()
- print("API类型总数: \(apiTypeCount)")
- 
- let methods = DMPContainerApi.getAllRegisteredMethods()
- print("已注册的方法: \(methods)")
- 
- let methodCount = DMPContainerApi.getRegisteredMethodCount()
- print("方法总数: \(methodCount)")
- 
- 新的设计优势：
- 
- 1. 类型注册 vs 实例创建分离：
-    - registerCustomAPI() 只注册类型，不创建实例
-    - initializeAllAPIs() 在需要时才创建实例并注册方法
- 
- 2. 避免重复创建：
-    - 每个容器不会重复创建API实例
-    - 只在需要时创建一次，然后复用已注册的方法
- 
- 3. 更好的资源管理：
-    - 可以动态添加/移除API类型
-    - 实例创建时机可控
- 
- 4. 性能优化：
-    - 避免不必要的实例创建
-    - 方法注册只发生一次
- 
- 工作原理：
- - @BridgeMethod 注解在API实例初始化时自动调用 registerMethod
- - registerCustomAPI 只存储API类型，不创建实例
- - initializeAllAPIs 创建所有已注册类型的实例，触发方法注册
- - 所有方法都存储在 bridgeHandlerMap 中，可以通过方法名调用
- */

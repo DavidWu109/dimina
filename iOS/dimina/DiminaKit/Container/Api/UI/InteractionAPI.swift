@@ -8,45 +8,32 @@
 import Foundation
 import UIKit
 
-/**
- * UI - Interaction API
- */
-// 故意不实现 BridgeMethodProtocol —— 实测带 protocol 时 _showModal 等 property wrapper
-// 的 stored property 会被二次求值（init 体跑完后又跑一次），导致后注册的 wrapper closure 覆盖
-// 任何在 init 体里手动注册的 handler；wrapper 自己 init 注册的 closure 看似 ok 但实际 dispatch
-// 时 closure body 不执行（symptom: callBridgeMethod returned 但 closure entry log 不出）。
-// LoginAPI 不实现 BridgeMethodProtocol，handler 正常工作 —— 跟它对齐。
 public class InteractionAPI: DMPContainerApi {
-    
-    
-    // API method names
-    private static let SHOW_TOAST = "showToast"
-    private static let SHOW_MODAL = "showModal"
-    private static let SHOW_LOADING = "showLoading"
-    private static let HIDE_TOAST = "hideToast"
-    private static let HIDE_LOADING = "hideLoading"
-    private static let SHOW_ACTION_SHEET = "showActionSheet"
-    
-    // Show toast
-    @BridgeMethod(SHOW_TOAST)
-    var showToast: DMPBridgeMethodHandler = { param, env, callback in
+
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("showToast", handler: showToast)
+        register("showModal", handler: showModal)
+        register("showLoading", handler: showLoading)
+        register("hideToast", handler: hideToast)
+        register("hideLoading", handler: hideLoading)
+        register("showActionSheet", handler: showActionSheet)
+    }
+
+    private func showToast(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
-        // 获取必需参数
         guard let title = param.get("title") as? String else {
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(InteractionAPI.SHOW_TOAST):fail title is required")
+            errorMap.set("errMsg", "showToast:fail title is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "title is required")
-            return
+            return nil
         }
-        
-        // 获取可选参数
+
         let icon = param.get("icon") as? String ?? "success"
         let duration = param.get("duration") as? Int ?? 1500
         let mask = param.get("mask") as? Bool ?? false
-        
-        // 在主线程上显示 Toast
+
         DispatchQueue.main.async {
-            // 将 icon 参数转换为 ToastType
             var toastType: ToastType = .success
             switch icon {
             case "success":
@@ -60,24 +47,18 @@ public class InteractionAPI: DMPContainerApi {
             default:
                 toastType = .success
             }
-            
-            // 显示 Toast
+
             ToastManager.shared.showToast(title: title, type: toastType, duration: duration, mask: mask)
         }
-        
-        // 返回成功响应
+
         let result = DMPMap()
-        result.set("errMsg", "\(InteractionAPI.SHOW_TOAST):ok")
+        result.set("errMsg", "showToast:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
-    
-    // Show modal
-    @BridgeMethod(SHOW_MODAL)
-    var showModal: DMPBridgeMethodHandler = { param, env, callback in
-        DMPLog.bridge.info("🎯 showModal closure ENTRY")
+
+    private func showModal(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
-        // 获取可选参数
         let title = param.get("title") as? String ?? ""
         let content = param.get("content") as? String ?? ""
         DMPLog.bridge.info("showModal native handler title=\(title) contentLen=\(content.count)")
@@ -86,10 +67,8 @@ public class InteractionAPI: DMPContainerApi {
         let cancelColor = param.get("cancelColor") as? String ?? "#000000"
         let confirmText = param.get("confirmText") as? String ?? "确定"
         let confirmColor = param.get("confirmColor") as? String ?? "#576B95"
-        
-        // 在主线程上显示对话框
+
         DispatchQueue.main.async {
-            // 调用 ModalManager 显示对话框
             ModalManager.shared.showModal(
                 title: title,
                 content: content,
@@ -99,119 +78,88 @@ public class InteractionAPI: DMPContainerApi {
                 confirmText: confirmText,
                 confirmColor: confirmColor
             ) { isConfirmed in
-                // 返回结果
                 let result = DMPMap()
                 result.set("confirm", isConfirmed)
                 result.set("cancel", !isConfirmed)
-                result.set("errMsg", "\(InteractionAPI.SHOW_MODAL):ok")
+                result.set("errMsg", "showModal:ok")
                 DMPContainerApi.invokeSuccess(callback: callback, param: result)
             }
         }
         return nil
     }
-    
-    // Show loading
-    @BridgeMethod(SHOW_LOADING)
-    var showLoading: DMPBridgeMethodHandler = { param, env, callback in
+
+    private func showLoading(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
-        // 获取必需参数
         guard let title = param.get("title") as? String else {
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(InteractionAPI.SHOW_LOADING):fail title is required")
+            errorMap.set("errMsg", "showLoading:fail title is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "title is required")
-            return
+            return nil
         }
-        
-        // 获取可选参数
+
         let mask = param.get("mask") as? Bool ?? false
-        
-        // 在主线程上显示加载指示器
+
         DispatchQueue.main.async {
-            // 使用 loading 图标，不会自动消失（无限时间）
             ToastManager.shared.showToast(title: title, type: .loading, duration: 0, mask: mask)
         }
-        
-        // 返回成功响应
+
         let result = DMPMap()
-        result.set("errMsg", "\(InteractionAPI.SHOW_LOADING):ok")
+        result.set("errMsg", "showLoading:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
-    
-    // Hide toast
-    @BridgeMethod(HIDE_TOAST)
-    var hideToast: DMPBridgeMethodHandler = { param, env, callback in
-        // 在主线程上隐藏 Toast
+
+    private func hideToast(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         DispatchQueue.main.async {
             ToastManager.shared.hideToast()
         }
-        
-        // 返回成功响应
+
         let result = DMPMap()
-        result.set("errMsg", "\(InteractionAPI.HIDE_TOAST):ok")
+        result.set("errMsg", "hideToast:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
-    
-    // Hide loading
-    @BridgeMethod(HIDE_LOADING)
-    var hideLoading: DMPBridgeMethodHandler = { param, env, callback in
-        // 在主线程上隐藏加载指示器
+
+    private func hideLoading(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         DispatchQueue.main.async {
-            // 隐藏加载指示器（使用 ToastManager 的 hideToast 方法）
             ToastManager.shared.hideToast()
         }
-        
-        // 返回成功响应
+
         let result = DMPMap()
-        result.set("errMsg", "\(InteractionAPI.HIDE_LOADING):ok")
+        result.set("errMsg", "hideLoading:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
-    
-    // Show action sheet
-    @BridgeMethod(SHOW_ACTION_SHEET)
-    var showActionSheet: DMPBridgeMethodHandler = { param, env, callback in
+
+    private func showActionSheet(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
-        // 获取可选参数
         let itemColor = param.get("itemColor") as? String ?? "#000000"
-        
-        // 获取选项列表
+
         var itemList: [String] = []
         if let items = param.get("itemList") as? [String] {
             itemList = items
         } else if let items = param.get("itemList") as? [Any] {
-            itemList = items.compactMap { item in
-                if let str = item as? String {
-                    return str
-                }
-                return nil
-            }
+            itemList = items.compactMap { $0 as? String }
         }
-        
-        // 如果选项列表为空，返回错误
+
         if itemList.isEmpty {
             let errorMap = DMPMap()
-            errorMap.set("errMsg", "\(InteractionAPI.SHOW_ACTION_SHEET):fail itemList is empty")
+            errorMap.set("errMsg", "showActionSheet:fail itemList is empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "itemList is empty")
-            return
+            return nil
         }
-        
-        // 在主线程上显示操作表
+
         DispatchQueue.main.async {
-            // 调用 ActionSheetManager 显示操作表
             ActionSheetManager.shared.showActionSheet(
                 itemList: itemList,
                 itemColor: itemColor
             ) { selectedIndex in
-                // 返回结果
                 let result = DMPMap()
                 result.set("tapIndex", selectedIndex)
-                result.set("errMsg", "\(InteractionAPI.SHOW_ACTION_SHEET):ok")
+                result.set("errMsg", "showActionSheet:ok")
                 DMPContainerApi.invokeSuccess(callback: callback, param: result)
             }
         }
         return nil
     }
-    
 }

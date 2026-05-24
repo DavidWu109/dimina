@@ -12,28 +12,28 @@ import UIKit
  * UI - Scroll API
  */
 public class ScrollAPI: DMPContainerApi {
-    
-    // API method names
-    private static let PAGE_SCROLL_TO = "pageScrollTo"
-    
-    // Page scroll to
-    @BridgeMethod(PAGE_SCROLL_TO)
-    var pageScrollTo: DMPBridgeMethodHandler = { param, env, callback in
+
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("pageScrollTo", handler: pageScrollTo)
+    }
+
+    private func pageScrollTo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let param = param.getMap()
         let scrollTop = param["scrollTop"] as? CGFloat ?? 0
         let duration = param["duration"] as? CGFloat ?? 300
-        
+
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "invalid app")
-            return
+            return nil
         }
-        
+
         guard let render = app.render,
               let webview = render.getWebView(byId: env.webViewId) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "invalid render or webview")
-            return
+            return nil
         }
-        
+
         let wkWebView = webview.getWebView()
 
         Task { @MainActor in
@@ -43,7 +43,7 @@ public class ScrollAPI: DMPContainerApi {
                 DMPContainerApi.invokeSuccess(callback: callback, param: nil)
             }
         }
-        
+
         return nil
     }
 }

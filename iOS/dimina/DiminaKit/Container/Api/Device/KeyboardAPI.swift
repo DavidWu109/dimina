@@ -12,29 +12,28 @@ import UIKit
  * Device - Keyboard API
  */
 public class KeyboardAPI: DMPContainerApi {
-    
-    // API method names
-    private static let HIDE_KEYBOARD = "hideKeyboard"
-    private static let ADJUST_POSITION = "adjustPosition"
-    
-    // Hide keyboard
-    @BridgeMethod(HIDE_KEYBOARD)
-    var hideKeyboard: DMPBridgeMethodHandler = { param, env, callback in
+
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
+        register("hideKeyboard", handler: hideKeyboard)
+        register("adjustPosition", handler: adjustPosition)
+    }
+
+    private func hideKeyboard(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         // 让当前第一响应者放弃响应状态来隐藏键盘
         DispatchQueue.main.async {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
-        
+
         let result = DMPMap()
-        result.set("errMsg", "\(KeyboardAPI.HIDE_KEYBOARD):ok")
+        result.set("errMsg", "hideKeyboard:ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
         return nil
     }
-    
-    // Adjust position
-    @BridgeMethod(ADJUST_POSITION)
-    var adjustPosition: DMPBridgeMethodHandler = { param, env, callback in
+
+    private func adjustPosition(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         // Empty implementation for adjusting the keyboard position
+        return nil
     }
-    
+
 }

@@ -17,21 +17,21 @@ import AVFoundation
  */
 public class AudioAPI: DMPContainerApi {
 
-    private static let CREATE_INNER_AUDIO_CONTEXT = "createInnerAudioContext"
-    private static let INNER_AUDIO_PLAY = "innerAudioPlay"
-    private static let INNER_AUDIO_PAUSE = "innerAudioPause"
-    private static let INNER_AUDIO_STOP = "innerAudioStop"
-    private static let INNER_AUDIO_SEEK = "innerAudioSeek"
-    private static let INNER_AUDIO_DESTROY = "innerAudioDestroy"
-    private static let INNER_AUDIO_SET_SRC = "innerAudioSetSrc"
-
     /// 音频播放器实例池，key 为 audioId
     private static var players: [String: AVAudioPlayer] = [:]
 
-    // MARK: - createInnerAudioContext（同步，返回 audioId）
+    public override init(app: DMPApp? = nil) {
+        super.init(app: app)
 
-    @BridgeMethod(CREATE_INNER_AUDIO_CONTEXT)
-    var createInnerAudioContext: DMPBridgeMethodHandler = { param, env, callback in
+        register("createInnerAudioContext", handler: createInnerAudioContext)
+        register("innerAudioPlay", handler: innerAudioPlay)
+        register("innerAudioPause", handler: innerAudioPause)
+        register("innerAudioStop", handler: innerAudioStop)
+        register("innerAudioSeek", handler: innerAudioSeek)
+        register("innerAudioDestroy", handler: innerAudioDestroy)
+    }
+
+    private func createInnerAudioContext(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let audioId = "audio_\(Int(Date().timeIntervalSince1970 * 1000))_\(Int.random(in: 1000...9999))"
         let result = DMPMap()
         result.set("audioId", audioId)
@@ -39,10 +39,7 @@ public class AudioAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - play
-
-    @BridgeMethod(INNER_AUDIO_PLAY)
-    var innerAudioPlay: DMPBridgeMethodHandler = { param, env, callback in
+    private func innerAudioPlay(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let params = param.getMap()
         let audioId = params.getString(key: "audioId") ?? ""
         let src = params.getString(key: "src") ?? ""
@@ -55,7 +52,6 @@ public class AudioAPI: DMPContainerApi {
             return nil
         }
 
-        // 异步下载/加载音频
         DispatchQueue.global().async {
             var audioData: Data?
 
@@ -85,20 +81,14 @@ public class AudioAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - pause
-
-    @BridgeMethod(INNER_AUDIO_PAUSE)
-    var innerAudioPause: DMPBridgeMethodHandler = { param, env, callback in
+    private func innerAudioPause(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         AudioAPI.players[audioId]?.pause()
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["audioId": audioId]))
         return nil
     }
 
-    // MARK: - stop
-
-    @BridgeMethod(INNER_AUDIO_STOP)
-    var innerAudioStop: DMPBridgeMethodHandler = { param, env, callback in
+    private func innerAudioStop(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         AudioAPI.players[audioId]?.stop()
         AudioAPI.players[audioId]?.currentTime = 0
@@ -106,10 +96,7 @@ public class AudioAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - seek
-
-    @BridgeMethod(INNER_AUDIO_SEEK)
-    var innerAudioSeek: DMPBridgeMethodHandler = { param, env, callback in
+    private func innerAudioSeek(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         let position = param.getMap().get("position") as? Double ?? 0
         AudioAPI.players[audioId]?.currentTime = position
@@ -117,10 +104,7 @@ public class AudioAPI: DMPContainerApi {
         return nil
     }
 
-    // MARK: - destroy
-
-    @BridgeMethod(INNER_AUDIO_DESTROY)
-    var innerAudioDestroy: DMPBridgeMethodHandler = { param, env, callback in
+    private func innerAudioDestroy(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any? {
         let audioId = param.getMap().getString(key: "audioId") ?? ""
         AudioAPI.players[audioId]?.stop()
         AudioAPI.players.removeValue(forKey: audioId)
