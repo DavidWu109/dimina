@@ -47,6 +47,8 @@ public class DMPPageController: UIViewController {
     private var isWebViewDestroyed = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
+    /// 页面自己的 navStyle 缓存，首次 setupNavigationBar 时写入，避免被 navigator 栈操作污染
+    private var cachedNavStyle: [String: Any]?
 
     /// Initialization method
     /// - Parameters:
@@ -551,6 +553,10 @@ public class DMPPageController: UIViewController {
         setupNavigationBar()
     }
 
+    public func updateCachedNavStyle(_ navStyle: [String: Any]) {
+        self.cachedNavStyle = navStyle
+    }
+
     public func updateNavigationTitle(_ title: String) {
         let nextTitle = title.isEmpty ? appConfig.appName : title
         customNavigationTitleLabel?.text = nextTitle
@@ -562,6 +568,11 @@ public class DMPPageController: UIViewController {
         customNavigationTitleLabel?.textColor = textColor
         updateCustomBackButton(darkStyle: darkStyle)
         updateCustomCapsuleButton(darkStyle: darkStyle)
+
+        let frontColor = darkStyle ? "#ffffff" : "#000000"
+        if let colorApplicable = customNavigationCapsuleView as? DMPNavigationBarColorApplicable {
+            colorApplicable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: nil)
+        }
     }
 
     private func updateCustomBackButton(darkStyle: Bool) {
@@ -905,8 +916,12 @@ public class DMPPageController: UIViewController {
         navigationItem.hidesBackButton = true
         navigationItem.backButtonTitle = ""
 
-        let navStyle: [String: Any]? = navigator?.getTopPageRecord()?.navStyle
+        let navStyle: [String: Any]? = cachedNavStyle
+            ?? navigator?.getTopPageRecord()?.navStyle
             ?? app?.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
+        if cachedNavStyle == nil {
+            cachedNavStyle = navStyle
+        }
         let darkStyle = (navStyle?["navigationBarTextStyle"] as? String) == "white"
         var title = appConfig.appName
         var backgroundColor = UIColor.white

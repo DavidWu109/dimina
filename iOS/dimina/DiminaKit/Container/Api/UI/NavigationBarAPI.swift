@@ -115,14 +115,15 @@ public class NavigationBarAPI: DMPContainerApi {
                 }
             }
 
-            if let pageRecord = app?.getNavigator()?.getTopPageRecord() {
-                if pageRecord.navStyle == nil {
-                    pageRecord.navStyle = [:]
-                }
-                var navStyle = pageRecord.navStyle!
-                navStyle["navigationBarBackgroundColor"] = backgroundColor
-                navStyle["navigationBarTextStyle"] = frontColor == "#ffffff" ? "white" : "black"
-                pageRecord.navStyle = navStyle
+            let updatedNavStyle: [String: Any] = {
+                var s = app?.getNavigator()?.getTopPageRecord()?.navStyle ?? [:]
+                s["navigationBarBackgroundColor"] = backgroundColor
+                s["navigationBarTextStyle"] = frontColor == "#ffffff" ? "white" : "black"
+                return s
+            }()
+            app?.getNavigator()?.getTopPageRecord()?.navStyle = updatedNavStyle
+            if let pageController = topViewController as? DMPPageController {
+                pageController.updateCachedNavStyle(updatedNavStyle)
             }
 
             let result = DMPMap()

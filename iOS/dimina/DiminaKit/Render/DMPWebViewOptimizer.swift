@@ -199,7 +199,6 @@ public class DMPWebViewOptimizer {
     /// 注册自定义 URL scheme handler，会在每个 WebView 创建时自动注入
     public func registerCustomSchemeHandler(scheme: String, factory: @escaping (String) -> WKURLSchemeHandler) {
         customSchemeFactories[scheme] = factory
-        NSLog("🔗 [WebViewOptimizer] registered custom scheme: %@", scheme)
     }
 
     func setupURLSchemeHandlers(to config: WKWebViewConfiguration, appId: String) -> [DifileURLSchemeHandler] {
