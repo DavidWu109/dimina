@@ -66,12 +66,12 @@ public class DMPSandboxManager {
 
     public static func appTmpResourceDirectoryPath(appId: String) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
-        return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPTmpResourceDirectoryName)
+        return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPResourceDirectoryName + "/" + DMPTmpResourceDirectoryName)
     }
-    
+
     public static func appStoreResourceDirectoryPath(appId: String) -> String {
         guard let sandboxPath = _sandboxPath else { return "" }
-        return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPStoreResourceDirectoryName)
+        return (sandboxPath as NSString).appendingPathComponent(appId + "/" + DMPResourceDirectoryName + "/" + DMPStoreResourceDirectoryName)
     }
     
     public static func appBundlePath(_ appId: String, versionCode: Int? = nil) -> String {

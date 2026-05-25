@@ -230,6 +230,7 @@ class DMPNetwork {
     ) {
         // 创建文件URL
         let fileURL = URL(fileURLWithPath: filePath)
+        print("📤 [DMPNetwork.uploadFile] url=\(url), fileURL=\(fileURL), name=\(name), timeout=\(timeout)")
         
         // 创建请求头，默认是multipart/form-data
         var headers: HTTPHeaders = header.map { HTTPHeaders($0) } ?? []
@@ -266,14 +267,16 @@ class DMPNetwork {
             case .success(let data):
                 // 成功上传文件并获得响应
                 let statusCode = response.response?.statusCode ?? 200
-                
+
                 // 将服务器返回数据转换为字符串
                 let responseString = String(data: data, encoding: .utf8) ?? ""
+                print("📤 [DMPNetwork.uploadFile] SUCCESS statusCode=\(statusCode), response=\(responseString.prefix(200))")
                 success(responseString, statusCode)
-                
+
             case .failure(let error):
                 // 上传失败
                 let errorMessage = "uploadFile:fail \(error.localizedDescription)"
+                print("📤 [DMPNetwork.uploadFile] FAIL: \(errorMessage)")
                 fail(errorMessage)
             }
             

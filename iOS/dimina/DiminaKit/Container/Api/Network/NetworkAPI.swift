@@ -156,11 +156,14 @@ public class NetworkAPI: DMPContainerApi {
     private func uploadFile(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         let url = param.getString(key: "url") ?? ""
-        let filePath = param.getString(key: "filePath") ?? ""
+        let rawFilePath = param.getString(key: "filePath") ?? ""
         let name = param.getString(key: "name") ?? ""
         let headerDict = param.getDictionary(key: "header")
         let formDataDict = param.getDictionary(key: "formData")
         let timeout = param.getDouble(key: "timeout") ?? 60000
+
+        let filePath = DMPFileUtil.sandboxPathFromVPath(from: rawFilePath, appId: env.appId) ?? rawFilePath
+        print("📤 [uploadFile] url=\(url), rawFilePath=\(rawFilePath), resolved=\(filePath), name=\(name)")
 
         if url.isEmpty || filePath.isEmpty || name.isEmpty {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail missing required parameters")
@@ -173,9 +176,11 @@ public class NetworkAPI: DMPContainerApi {
         }
 
         if !FileManager.default.fileExists(atPath: filePath) {
+            print("📤 [uploadFile] FAIL: file does not exist at \(filePath)")
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail file does not exist")
             return DMPAsyncResult()
         }
+        print("📤 [uploadFile] params OK, starting upload...")
 
         var header: [String: String]?
         if let headerDict = headerDict {

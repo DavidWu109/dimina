@@ -512,6 +512,7 @@ class DMPImagePickerController: UIViewController, UINavigationControllerDelegate
             }
 
             let dispatchGroup = DispatchGroup()
+            let lock = NSLock()
             var images: [UIImage] = []
 
             for result in results {
@@ -519,11 +520,12 @@ class DMPImagePickerController: UIViewController, UINavigationControllerDelegate
 
                 if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
                     result.itemProvider.loadObject(ofClass: UIImage.self) { (object, error) in
-                        defer { dispatchGroup.leave() }
-
                         if let image = object as? UIImage {
+                            lock.lock()
                             images.append(image)
+                            lock.unlock()
                         }
+                        dispatchGroup.leave()
                     }
                 } else {
                     dispatchGroup.leave()

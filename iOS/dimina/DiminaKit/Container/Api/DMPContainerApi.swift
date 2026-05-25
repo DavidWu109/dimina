@@ -16,8 +16,8 @@ import Foundation
 
 public class DMPBridgeEnv {
     public let appIndex: Int
-    let appId: String
-    let webViewId: Int
+    public let appId: String
+    public let webViewId: Int
 
     init(appIndex: Int, appId: String, webViewId: Int) {
         self.appIndex = appIndex
@@ -241,23 +241,28 @@ public class DMPContainerApi: NSObject {
     }
     
     public func invokeBridgeMethod(name: String, data: DMPBridgeParam, env: DMPBridgeEnv, callback: DMPBridgeCallback? = nil) -> DMPAPIResult {
+        print("📥 [bridge] invokeBridgeMethod name=\(name)")
         if let handler = Self.getHandler(for: name) {
             return handler(data, env, callback)
         }
-        print("未找到方法: \(name)")
+        print("📥 [bridge] 未找到方法: \(name)")
         return DMPNoneResult()
     }
     
     // 统一的回调处理方法
     public static func invokeCallback(_ callback: DMPBridgeCallback?, type: DMPBridgeCallbackType, param: DMPMap?, errMsg: String? = nil) {
-        guard let callback = callback else { return }
-        
+        guard let callback = callback else {
+            print("📷 [invokeCallback] callback is nil! type=\(type)")
+            return
+        }
+
         let finalParam = param ?? DMPMap()
-        
+
         if type == .fail, let errMsg = errMsg {
             finalParam.set("data", ["errMsg": errMsg])
         }
-        
+
+        print("📷 [invokeCallback] type=\(type) keys=\(Array(finalParam.toDictionary().keys))")
         callback(finalParam, type)
         
         // 所有回调最终都会触发complete

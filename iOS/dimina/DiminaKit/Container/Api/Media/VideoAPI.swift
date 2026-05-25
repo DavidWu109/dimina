@@ -658,31 +658,27 @@ class DMPMediaPickerController: UIViewController, UINavigationControllerDelegate
                 return
             }
 
-            // 创建组等待处理完成
             let dispatchGroup = DispatchGroup()
+            let lock = NSLock()
+            var collectedMedia: [DMPMediaFile] = []
 
             for result in results {
-                // 处理图片
                 if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
                     dispatchGroup.enter()
 
-                    result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] (object, error) in
-                        defer { dispatchGroup.leave() }
-
+                    result.itemProvider.loadObject(ofClass: UIImage.self) { (object, error) in
                         if let image = object as? UIImage {
-                            DispatchQueue.main.async {
-                                self?.selectedMedia.append(.image(image))
-                            }
+                            lock.lock()
+                            collectedMedia.append(.image(image))
+                            lock.unlock()
                         }
+                        dispatchGroup.leave()
                     }
                 }
-                // 处理视频
                 else if result.itemProvider.hasItemConformingToTypeIdentifier("public.movie") {
                     dispatchGroup.enter()
 
-                    result.itemProvider.loadFileRepresentation(forTypeIdentifier: "public.movie") { [weak self] (url, error) in
-                        defer { dispatchGroup.leave() }
-
+                    result.itemProvider.loadFileRepresentation(forTypeIdentifier: "public.movie") { (url, error) in
                         if let url = url {
                             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
 
@@ -692,23 +688,23 @@ class DMPMediaPickerController: UIViewController, UINavigationControllerDelegate
                                 }
                                 try FileManager.default.copyItem(at: url, to: tempURL)
 
-                                DispatchQueue.main.async {
-                                    self?.selectedMedia.append(.video(tempURL))
-                                }
+                                lock.lock()
+                                collectedMedia.append(.video(tempURL))
+                                lock.unlock()
                             } catch {
                                 print("Failed to copy video: \(error)")
                             }
                         }
+                        dispatchGroup.leave()
                     }
                 }
             }
 
-            // 等待所有媒体处理完成
             dispatchGroup.notify(queue: .main) { [weak self] in
                 guard let self = self else { return }
 
-                if !self.selectedMedia.isEmpty {
-                    self.completion(.success(self.selectedMedia))
+                if !collectedMedia.isEmpty {
+                    self.completion(.success(collectedMedia))
                 } else {
                     self.completion(.failure(.unknown(message: "Failed to load media files")))
                 }
