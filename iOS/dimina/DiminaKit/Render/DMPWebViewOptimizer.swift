@@ -24,27 +24,15 @@ public class DMPWebViewOptimizer {
     ///   - config: WKWebViewConfiguration instance
     ///   - appId: Application ID
     ///   - processPool: Optional process pool
-    @MainActor public func applyOptimizations(to config: WKWebViewConfiguration, appId: String, processPool: WKProcessPool? = nil) {
-        // 1. Process pool optimization
+    @MainActor @discardableResult
+    public func applyOptimizations(to config: WKWebViewConfiguration, appId: String, processPool: WKProcessPool? = nil) -> [DifileURLSchemeHandler] {
         applyProcessPoolOptimizations(to: config, processPool: processPool)
-        
-        // 2. Memory management optimization
         applyMemoryOptimizations(to: config)
-        
-        // 3. Rendering optimization
         applyRenderingOptimizations(to: config)
-        
-        // 4. Network optimization
         applyNetworkOptimizations(to: config)
-        
-        // 5. JavaScript optimization
         applyJavaScriptOptimizations(to: config)
-        
-        // 6. iOS system-specific optimization
         applySystemSpecificOptimizations(to: config)
-        
-        // 7. URL scheme handlers
-        setupURLSchemeHandlers(to: config, appId: appId)
+        return setupURLSchemeHandlers(to: config, appId: appId)
     }
     
     // MARK: - Process pool optimization
@@ -204,15 +192,35 @@ public class DMPWebViewOptimizer {
     
     // MARK: - URL scheme handlers
     
-    private func setupURLSchemeHandlers(to config: WKWebViewConfiguration, appId: String) {
-        // Register custom URL scheme handlers
-         let difileSchemeHandler: DifileURLSchemeHandler = DifileURLSchemeHandler(appId: appId)
+    /// 外部注册的自定义 scheme handler 工厂
+    /// key: URL scheme（如 "echofile"），value: 接收 appId 返回 WKURLSchemeHandler 的闭包
+    private var customSchemeFactories: [String: (String) -> WKURLSchemeHandler] = [:]
+
+    /// 注册自定义 URL scheme handler，会在每个 WebView 创建时自动注入
+    public func registerCustomSchemeHandler(scheme: String, factory: @escaping (String) -> WKURLSchemeHandler) {
+        customSchemeFactories[scheme] = factory
+        NSLog("🔗 [WebViewOptimizer] registered custom scheme: %@", scheme)
+    }
+
+    func setupURLSchemeHandlers(to config: WKWebViewConfiguration, appId: String) -> [DifileURLSchemeHandler] {
+         var handlers: [DifileURLSchemeHandler] = []
+
+         let difileSchemeHandler = DifileURLSchemeHandler(appId: appId)
          config.setURLSchemeHandler(difileSchemeHandler, forURLScheme: "difile")
-         
+         handlers.append(difileSchemeHandler)
+
          let diminaSchemeHandler = DiminaURLSchemeHandler(appId: appId)
          config.setURLSchemeHandler(diminaSchemeHandler, forURLScheme: "dimina")
-        
-        print("🔗 WebViewOptimizer: Set up URL scheme handlers")
+
+         for (scheme, factory) in customSchemeFactories {
+             let handler = factory(appId)
+             config.setURLSchemeHandler(handler, forURLScheme: scheme)
+             if let difileHandler = handler as? DifileURLSchemeHandler {
+                 handlers.append(difileHandler)
+             }
+         }
+
+         return handlers
     }
     
     // MARK: - WebView instance optimization

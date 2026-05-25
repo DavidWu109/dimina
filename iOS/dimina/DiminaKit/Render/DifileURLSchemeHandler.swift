@@ -9,15 +9,15 @@ import Foundation
 import WebKit
 
 @available(iOS 11.0, *)
-class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
-    private let appId: String
-    
-    init(appId: String) {
+public class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    public var appId: String
+
+    public init(appId: String) {
         self.appId = appId
         super.init()
     }
     
-    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+    public func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             DMPLog.scheme.error("difile:// request has no URL")
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
@@ -53,7 +53,7 @@ class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+    public func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         DMPLog.scheme.debug("difile stop \(urlSchemeTask.request.url?.absoluteString ?? "nil")")
     }
     

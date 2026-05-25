@@ -62,20 +62,19 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     // Add WebViewLogger member variable
     internal var logger: DMPWebViewLogger?
 
+    /// Scheme handlers that need appId updates on reuse
+    internal var schemeHandlers: [DifileURLSchemeHandler] = []
+
     private var webViewId: Int
     internal var pagePath: String
     internal var query: [String: Any] = [:]
 
     public let createdAt: Date = Date()
 
-    // Add default configuration method
-    private static func defaultConfiguration(appId: String, processPool: WKProcessPool? = nil) -> WKWebViewConfiguration {
+    private static func defaultConfiguration(appId: String, processPool: WKProcessPool? = nil) -> (WKWebViewConfiguration, [DifileURLSchemeHandler]) {
         let config = WKWebViewConfiguration()
-
-        // Use performance optimizer to apply all optimization configurations
-        DMPWebViewOptimizer.shared.applyOptimizations(to: config, appId: appId, processPool: processPool)
-
-        return config
+        let handlers = DMPWebViewOptimizer.shared.applyOptimizations(to: config, appId: appId, processPool: processPool)
+        return (config, handlers)
     }
 
     public var appName: String
@@ -95,11 +94,11 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         return poolState.isLoading
     }
 
-    // Modify constructor
     public init(delegate: DMPWebViewDelegate?, appName: String, appId: String, processPool: WKProcessPool? = nil) {
-        let config = DMPWebview.defaultConfiguration(appId: appId, processPool: processPool)
+        let (config, handlers) = DMPWebview.defaultConfiguration(appId: appId, processPool: processPool)
 
         self.webView = WKWebView(frame: .zero, configuration: config)
+        self.schemeHandlers = handlers
         if #available(iOS 16.4, *) {
             self.webView.isInspectable = true
         }

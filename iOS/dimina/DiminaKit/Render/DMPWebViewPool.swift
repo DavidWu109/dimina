@@ -459,6 +459,11 @@ extension DMPWebview {
     fileprivate func resetForReuse(appName: String, appId: String) {
         print("🔄 WebView (ID: \(getWebViewId())) start reset for app: \(appName)")
 
+        // Update scheme handlers with new appId
+        for handler in self.schemeHandlers {
+            handler.appId = appId
+        }
+
         // Update application information
         self.appName = appName
 
