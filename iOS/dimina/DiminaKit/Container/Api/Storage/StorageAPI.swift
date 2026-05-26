@@ -31,27 +31,51 @@ public class StorageAPI: DMPContainerApi {
     }
 
     private func setStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let param = param.getMap()
-        guard let key = param.get("key") as? String else { return DMPSyncResult(false) }
-        let data = param.get("data")
-        let encrypt = param.get("encrypt") as? Bool ?? false
+        let key: String
+        let data: Any
+        let encrypt: Bool
 
-        guard let data = data else { return DMPSyncResult(false) }
+        if let array = param.getValue() as? [Any], array.count >= 2 {
+            guard let k = array[0] as? String else { return DMPSyncResult(false) }
+            key = k
+            data = array[1]
+            encrypt = false
+        } else {
+            let map = param.getMap()
+            guard let k = map.get("key") as? String else { return DMPSyncResult(false) }
+            guard let d = map.get("data") else { return DMPSyncResult(false) }
+            key = k
+            data = d
+            encrypt = map.get("encrypt") as? Bool ?? false
+        }
 
         let result = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
         return DMPSyncResult(result)
     }
 
     private func getStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        guard let key = param.getValue() as? String else { return DMPNoneResult() }
+        let key: String
+        if let k = param.getValue() as? String {
+            key = k
+        } else if let k = param.getMap().get("key") as? String {
+            key = k
+        } else {
+            return DMPNoneResult()
+        }
         let value = DMPStorage.shared.get(key: key, encrypted: false)
         return DMPSyncResult(DMPBridgeParam(value: value))
     }
 
     private func removeStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let param = param.getMap()
-        guard let key = param.get("key") as? String else { return DMPSyncResult(false) }
-        let encrypt = param.get("encrypt") as? Bool ?? false
+        let key: String
+        if let k = param.getValue() as? String {
+            key = k
+        } else if let k = param.getMap().get("key") as? String {
+            key = k
+        } else {
+            return DMPSyncResult(false)
+        }
+        let encrypt = param.getMap().get("encrypt") as? Bool ?? false
 
         DMPStorage.shared.remove(key: key, encrypted: encrypt)
         return DMPSyncResult(true)
@@ -65,6 +89,7 @@ public class StorageAPI: DMPContainerApi {
     private func setStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let key = param.get("key") as? String else {
+            NSLog("🗄️ [setStorage] FAIL: missing key, param=%@", param.toDictionary().description)
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setStorage:fail missing parameter key")
             return DMPAsyncResult()
         }
@@ -73,12 +98,16 @@ public class StorageAPI: DMPContainerApi {
         let encrypt = param.get("encrypt") as? Bool ?? false
 
         guard let data = data else {
+            NSLog("🗄️ [setStorage] FAIL: missing data for key=%@", key)
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setStorage:fail missing parameter data")
             return DMPAsyncResult()
         }
 
+        NSLog("🗄️ [setStorage] key=%@, dataType=%@", key, String(describing: type(of: data)))
+
         DispatchQueue.global().async {
             let success = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
+            NSLog("🗄️ [setStorage] key=%@, result=%d", key, success ? 1 : 0)
 
             DispatchQueue.main.async {
                 if success {
@@ -97,6 +126,7 @@ public class StorageAPI: DMPContainerApi {
     private func getStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         let param = param.getMap()
         guard let key = param.get("key") as? String else {
+            NSLog("🗄️ [getStorage] FAIL: missing key, param=%@", param.toDictionary().description)
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "getStorage:fail missing parameter key")
             return DMPAsyncResult()
         }
@@ -105,6 +135,7 @@ public class StorageAPI: DMPContainerApi {
 
         DispatchQueue.global().async {
             let value = DMPStorage.shared.get(key: key, encrypted: encrypt)
+            NSLog("🗄️ [getStorage] key=%@, found=%d", key, value != nil ? 1 : 0)
 
             DispatchQueue.main.async {
                 if let value = value {
