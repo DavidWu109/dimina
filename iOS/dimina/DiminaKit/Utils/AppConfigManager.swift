@@ -16,13 +16,15 @@ public class AppConfigManager: DisposeBagProvider {
     ///   - appId: 小程序ID
     ///   - type: 环境类型
     /// - Returns: 小程序信息
-    public func loadMiniProgram(appId: String, type: String?) async -> MiniProgramInfo? {
+    public func loadMiniProgram(appId: String, type: String?, forceRemote: Bool = false) async -> MiniProgramInfo? {
         return await withCheckedContinuation { continuation in
-            
-            let string = MMKV.default()?.string(forKey: "lookup_apps_list")
-            let apps = [MiniProgramInfo].deserialize(from: string)?.compactMap({ $0 })
-            
-            if let app = apps?.first(where: { $0.id == appId }) {
+            // B1/H5：仅“正式版”(type 空) 且非强制拉新时走缓存；体验版(ex)/dev 始终拉新，
+            // 避免按 appId-only 命中正式版的陈旧 info。Dimina/webview 自检传 forceRemote:true 对齐。
+            let canUseCache = !forceRemote && (type == nil || type!.isEmpty)
+            if canUseCache,
+               let string = MMKV.default()?.string(forKey: "lookup_apps_list"),
+               let apps = [MiniProgramInfo].deserialize(from: string)?.compactMap({ $0 }),
+               let app = apps.first(where: { $0.id == appId }) {
                 continuation.resume(returning: app)
             } else {
                 Network.miniProgramLookupAppDetail(appId: appId, type: type)
