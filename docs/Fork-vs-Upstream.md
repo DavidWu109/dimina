@@ -155,8 +155,8 @@
 主要文件：
 
 - `iOS/dimina/DiminaKit/Container/Api/DMPContainerApi.swift`
+- `iOS/dimina/DiminaKit/Container/Api/DMPApiHandler.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Base/BaseAPI.swift`
-- `iOS/dimina/DiminaKit/Container/Api/Base/LoginAPI.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Base/FileSystemAPI.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Device/DeviceAPI.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Media/AudioAPI.swift`
@@ -167,10 +167,11 @@
 修改内容：
 
 - 大部分原有内置 API 从 `@BridgeMethod` property wrapper 改成在 `init` 中显式 `register()`；
-- 保留公开的 `BridgeMethod` 和外部 API 类型注册入口，供 EchoWebKit 等外部模块扩展；
+- 内置 API 仍由静态表承载，宿主 API 改为 `DMPApp.registerApi(_:)` 按 App 实例注册；
+- 宿主 handler 通过 `DMPBaseApiHandler` 显式声明方法，冲突默认拒绝，也可显式 `.replace`；
 - `DMPContainerApi.create()` 显式实例化并注册所有内置 API；
-- 将已注册 API 名称和自定义 namespace 注入 service JS；
-- 增加宿主 `DMPLoginProvider`，由千岛侧实现 `wx.login`；
+- 将当前 App 的 API 名称和自定义 namespace 注入 service JS；
+- `wx.login` 由 EchoWebKit 的业务 handler 注入，Dimina 不再持有登录 provider；
 - 增加文件系统、设备信息、音频、TabBar 和 UI 反馈等业务需要的 API；
 - 在 service 启动阶段为 Taro 和部分微信同步 API 注入兼容层；
 - Storage Sync API 同时接受数组参数和对象参数，并按 `appId` 隔离存储。
@@ -178,7 +179,7 @@
 目的：
 
 - 避免依赖 property wrapper 初始化副作用注册全局 handler，减少注册时序不确定和 `swiftc` 问题；
-- 允许公司其他模块继续注入自定义 API；
+- 允许公司其他模块注入自定义 API，且不会污染其他小程序实例；
 - 补齐线上小程序和 Taro 应用实际调用、但上游当时未覆盖的 API；
 - 防止某个小程序读取到另一个小程序的 storage；
 - 避免缺失方法直接抛 `TypeError` 并中断首屏渲染。
@@ -188,6 +189,7 @@
 - 新上游 API 仍有部分使用 `@BridgeMethod`，当前处于两种注册方式共存状态；
 - 新增 API 时必须确认 `DMPContainerApi.create()` 已实例化对应类型；
 - 不要把 fork 内置 API 整体换回 wrapper 模式；
+- 宿主 API 必须在 `DMPApp.launch` 前注册；仅在明确覆盖内置实现时使用 `.replace`；
 - JS polyfill 只应作为 Native API 缺口的兼容层，不能无验证地继续堆叠空实现。
 
 ### 3.5 WebView 复用、生命周期与白屏恢复
