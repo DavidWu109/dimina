@@ -30,10 +30,10 @@ public class DMPFileUtil {
                 at: URL(fileURLWithPath: zipPath),
                 to: URL(fileURLWithPath: destinationPath)
             )
-            print("成功解压文件: \(zipPath) 到 \(destinationPath)")
+            DMPLogger.debug("成功解压文件: \(zipPath) 到 \(destinationPath)")
             return true
         } catch {
-            print("解压文件过程中发生错误: \(error)")
+            DMPLogger.debug("解压文件过程中发生错误: \(error)")
             return false
         }
     }
@@ -83,7 +83,7 @@ public class DMPFileUtil {
 
             return true
         } catch {
-            print("复制文件过程中发生错误: \(error)")
+            DMPLogger.debug("复制文件过程中发生错误: \(error)")
             return false
         }
     }
@@ -97,7 +97,7 @@ public class DMPFileUtil {
             }
             return false
         } catch {
-            print("删除文件失败: \(error)")
+            DMPLogger.debug("删除文件失败: \(error)")
             return false
         }
     }
@@ -109,7 +109,7 @@ public class DMPFileUtil {
                 atPath: path, withIntermediateDirectories: true, attributes: nil)
             return true
         } catch {
-            print("创建目录失败: \(error)")
+            DMPLogger.debug("创建目录失败: \(error)")
             return false
         }
     }
@@ -130,7 +130,7 @@ public class DMPFileUtil {
             let fileURL = URL(fileURLWithPath: filePath).isFileURL
                 ? URL(fileURLWithPath: filePath) : nil
         else {
-            print("无效的文件路径")
+            DMPLogger.debug("无效的文件路径")
             return nil
         }
 
@@ -138,39 +138,78 @@ public class DMPFileUtil {
             let data = try Data(contentsOf: fileURL)
             return try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
         } catch {
-            print("加载 JSON 文件失败: \(error)")
+            DMPLogger.debug("加载 JSON 文件失败: \(error)")
             return nil
         }
     }
 
     public static func vPathFromSandboxPath(sandboxPath: String, appId: String) -> String {
+        let storeDirectory: String = DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId)
+        if sandboxPath.hasPrefix(storeDirectory) {
+            let relativePath: String = sandboxPath.replacingOccurrences(of: storeDirectory, with: "")
+            return "\(DMPFileURLScheme)://usr\(relativePath)"
+        }
         let resourceDirectory: String = DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId)
-        let relativePath: String = sandboxPath.replacingOccurrences(of: resourceDirectory, with: "")
+        let relativePath: String = sandboxPath
+            .replacingOccurrences(of: resourceDirectory, with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let vPath: String = "\(DMPFileURLScheme)://\(relativePath)"
         return vPath
     }
 
     public static func sandboxPathFromVPath(from vPath: String, appId: String, version: String? = nil) -> String? {
-        guard let components: URLComponents = URLComponents(string: vPath) else {
+        guard let components = URLComponents(string: vPath),
+              components.scheme?.lowercased() == DMPFileURLScheme,
+              components.user == nil,
+              components.password == nil else {
             return nil
         }
 
-        let path: String = components.path
-        
-        // 如果有版本号，使用版本化的资源目录
+        let host = components.host ?? ""
+        let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if host == "usr" {
+            return confinedPath(
+                rootPath: DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId),
+                relativePath: path
+            )
+        }
+
         let resourceDirectory: String
         if let version = version {
-            // 使用版本化的资源目录：sandboxPath/appId/version/main
             let appBundlePath = DMPSandboxManager.appBundlePath(appId)
             let versionPath = (appBundlePath as NSString).appendingPathComponent(version)
             resourceDirectory = (versionPath as NSString).appendingPathComponent("main")
         } else {
-            // 使用临时资源目录（向后兼容）
             resourceDirectory = DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId)
         }
-        
-        let sandboxPath: String = (resourceDirectory as NSString).appendingPathComponent(components.host ?? "") + path
-        return sandboxPath
+
+        let relativePath = ([host, path].filter { !$0.isEmpty }).joined(separator: "/")
+        return confinedPath(rootPath: resourceDirectory, relativePath: relativePath)
+    }
+
+    /// Resolve a relative path while guaranteeing that the final filesystem
+    /// location remains under `rootPath`, including after dot-segment and
+    /// symlink resolution.
+    public static func confinedPath(rootPath: String, relativePath: String) -> String? {
+        guard !rootPath.isEmpty,
+              !relativePath.contains("\0") else {
+            return nil
+        }
+
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let trimmedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let targetURL = rootURL
+            .appendingPathComponent(trimmedPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let root = rootURL.path
+        let target = targetURL.path
+        guard target == root || target.hasPrefix(root + "/") else {
+            return nil
+        }
+        return target
     }
 
 }

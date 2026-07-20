@@ -44,7 +44,7 @@ public class DMPApp {
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
         guard !isLaunching else {
-            print("launch skipped: app is already launching")
+            DMPLogger.debug("launch skipped: app is already launching")
             return
         }
 
@@ -173,9 +173,17 @@ public class DMPApp {
 
         // Inject custom API namespaces before loading service.js
         let namespaces = DMPAppManager.sharedInstance().apiNamespaces
-        if !namespaces.isEmpty {
-            let json = namespaces.map { "\"\($0)\"" }.joined(separator: ",")
-            await service?.evaluateScript("globalThis.__diminaApiNamespaces = [\(json)]")
+        if !namespaces.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: namespaces),
+           let json = String(data: data, encoding: .utf8) {
+            await service?.evaluateScript("globalThis.__diminaApiNamespaces = \(json)")
+        }
+        // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
+        let registeredApis = DMPContainerApi.getAllRegisteredMethods()
+        if !registeredApis.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: registeredApis),
+           let json = String(data: data, encoding: .utf8) {
+            await service?.evaluateScript("globalThis.__diminaRegisteredApis = \(json)")
         }
 
         await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
@@ -416,7 +424,7 @@ public class DMPApp {
         let path = DMPSandboxManager.appConfigPath(appId: appId, versionCode: versionCode)
         let config = DMPFileUtil.readJsonFile(at: path)
         DMPLog.bundle.debug("loaded app-config.json at \(path)")
-        if config == nil {
+        if config == "{}" {
             DMPLog.bundle.warn("app-config.json is nil at \(path)")
         }
         self.bundleAppConfig = DMPBundleAppConfig.fromJsonString(json: config)
@@ -486,6 +494,9 @@ public class DMPApp {
         isDestroyed = true
         DMPLog.app.info("destroy, appId=\(appId)")
 
+        BluetoothAPIManager.shared.clearApp(appId)
+        LocalNetworkAPIManager.shared.clearApp(appId)
+
         // Clear WebView cache pool (execute on main thread)
         Task { @MainActor in
             DMPWebViewPool.shared.clearPool()
@@ -505,7 +516,7 @@ public class DMPApp {
         containerToDestroy?.clearExtSubscriptions()
 
         // Storage is a global singleton. Tear it down before another app initializes it.
-        DMPStorage.teardownModule()
+        DMPStorage.teardownModule(appId: appId)
 
         DispatchQueue.global(qos: .utility).async {
             serviceToDestroy?.destroy()

@@ -34,12 +34,12 @@ public class DMPAppManager {
     }
     
     public func appWithConfig(appConfig: DMPAppConfig) -> DMPApp {
-        print("appWithConfig config=\(appConfig)")
+        DMPLogger.debug("appWithConfig config=\(appConfig)")
         if let existingApp = existApp(appId: appConfig.appId) {
-            print("appWithConfig return exist DMPApp")
+            DMPLogger.debug("appWithConfig return exist DMPApp")
             return existingApp
         } else {
-            print("appWithConfig create DMPApp")
+            DMPLogger.debug("appWithConfig create DMPApp")
             appIndex += 1
             let newApp = DMPApp(appConfig: appConfig, appIndex: appIndex)
             appPools[appIndex] = newApp

@@ -24,6 +24,9 @@ export default defineConfig(({ mode }) => {
 			alias: {
 				'@': resolve(__dirname, 'src'),
 				'@images': '/images',
+				...(mode === 'test'
+					? { '@dimina/service?url': resolve(__dirname, '__tests__/fixtures/service-worker-url.js') }
+					: {}),
 			},
 		},
 		css: {

@@ -2,6 +2,7 @@ package com.didi.dimina.core
 
 import android.os.Handler
 import android.os.Looper
+import com.didi.dimina.common.JavaScriptUtils
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.engine.qjs.QuickJSEngine
@@ -169,15 +170,7 @@ class JsCore {
      * @param body 消息内容
      */
     fun postMessage(type: String, body: Map<String, String> = emptyMap()) {
-        // 构建 JavaScript 代码来调用接收消息的函数
-        val jsonBody = StringBuilder()
-        jsonBody.append("{")
-        body.entries.forEachIndexed { index, entry ->
-            if (index > 0) jsonBody.append(",")
-            jsonBody.append("\"${entry.key}\":\"${entry.value}\"")
-        }
-        jsonBody.append("}")
-        postMessage("{type:'$type', body:$jsonBody}")
+        postMessage(JavaScriptUtils.message(type, body))
     }
 
     fun postMessage(msg: String) {
@@ -186,7 +179,7 @@ class JsCore {
             return
         }
         mainHandler.post {
-            jsEngine.evaluate("DiminaServiceBridge.onMessage($msg)")
+            jsEngine.evaluate(JavaScriptUtils.invokeWithJson("DiminaServiceBridge.onMessage", msg))
         }
     }
 

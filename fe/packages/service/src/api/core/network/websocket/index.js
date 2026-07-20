@@ -1,6 +1,48 @@
 import { invokeAPI } from '@/api/common'
 import { callback, isFunction } from '@dimina/common'
 
+function createSocketEvent(onName, offName, baseParams = {}) {
+	const listeners = new Map()
+
+	return {
+		on(listener) {
+			if (!isFunction(listener) || listeners.has(listener)) {
+				return
+			}
+
+			// 每个事件使用独立包装函数，避免同一 listener 注册到不同事件时
+			// 被全局 callback registry 复用成同一个 id。
+			const callbackId = callback.store(value => listener(value), true)
+			listeners.set(listener, callbackId)
+			try {
+				return invokeAPI(onName, { ...baseParams, callback: callbackId, keep: true })
+			}
+			catch (error) {
+				listeners.delete(listener)
+				callback.remove(callbackId)
+				throw error
+			}
+		},
+		off(listener) {
+			if (isFunction(listener)) {
+				const callbackId = listeners.get(listener)
+				if (!callbackId) {
+					return
+				}
+				listeners.delete(listener)
+				callback.remove(callbackId)
+				return invokeAPI(offName, { ...baseParams, callback: callbackId, keep: true })
+			}
+
+			for (const callbackId of listeners.values()) {
+				callback.remove(callbackId)
+			}
+			listeners.clear()
+			return invokeAPI(offName, { ...baseParams, keep: true })
+		},
+	}
+}
+
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/api/network/websocket/SocketTask.html
  * SocketTask 类，用于管理 WebSocket 连接
@@ -9,6 +51,12 @@ class SocketTask {
 	constructor(socketId) {
 		this.socketId = socketId
 		this._readyState = 0 // CONNECTING
+		this._events = {
+			open: createSocketEvent('onSocketOpen', 'offSocketOpen', { socketId }),
+			message: createSocketEvent('onSocketMessage', 'offSocketMessage', { socketId }),
+			error: createSocketEvent('onSocketError', 'offSocketError', { socketId }),
+			close: createSocketEvent('onSocketClose', 'offSocketClose', { socketId }),
+		}
 	}
 
 	/**
@@ -69,12 +117,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	onOpen(callbackFn) {
-		if (isFunction(callbackFn)) {
-			return invokeAPI('onSocketOpen', {
-				socketId: this.socketId,
-				callback: callback.store(callbackFn, true)
-			})
-		}
+		return this._events.open.on(callbackFn)
 	}
 
 	/**
@@ -82,10 +125,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	offOpen(callbackFn) {
-		return invokeAPI('offSocketOpen', {
-			socketId: this.socketId,
-			callback: callbackFn
-		})
+		return this._events.open.off(callbackFn)
 	}
 
 	/**
@@ -93,12 +133,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	onMessage(callbackFn) {
-		if (isFunction(callbackFn)) {
-			return invokeAPI('onSocketMessage', {
-				socketId: this.socketId,
-				callback: callback.store(callbackFn, true)
-			})
-		}
+		return this._events.message.on(callbackFn)
 	}
 
 	/**
@@ -106,10 +141,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	offMessage(callbackFn) {
-		return invokeAPI('offSocketMessage', {
-			socketId: this.socketId,
-			callback: callbackFn
-		})
+		return this._events.message.off(callbackFn)
 	}
 
 	/**
@@ -117,12 +149,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	onError(callbackFn) {
-		if (isFunction(callbackFn)) {
-			return invokeAPI('onSocketError', {
-				socketId: this.socketId,
-				callback: callback.store(callbackFn, true)
-			})
-		}
+		return this._events.error.on(callbackFn)
 	}
 
 	/**
@@ -130,10 +157,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	offError(callbackFn) {
-		return invokeAPI('offSocketError', {
-			socketId: this.socketId,
-			callback: callbackFn
-		})
+		return this._events.error.off(callbackFn)
 	}
 
 	/**
@@ -141,12 +165,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	onClose(callbackFn) {
-		if (isFunction(callbackFn)) {
-			return invokeAPI('onSocketClose', {
-				socketId: this.socketId,
-				callback: callback.store(callbackFn, true)
-			})
-		}
+		return this._events.close.on(callbackFn)
 	}
 
 	/**
@@ -154,10 +173,7 @@ class SocketTask {
 	 * @param {Function} callback 回调函数
 	 */
 	offClose(callbackFn) {
-		return invokeAPI('offSocketClose', {
-			socketId: this.socketId,
-			callback: callbackFn
-		})
+		return this._events.close.off(callbackFn)
 	}
 
 	/**
@@ -175,6 +191,13 @@ class SocketTask {
 	static get OPEN() { return 1 }
 	static get CLOSING() { return 2 }
 	static get CLOSED() { return 3 }
+}
+
+const globalSocketEvents = {
+	open: createSocketEvent('onSocketOpen', 'offSocketOpen'),
+	message: createSocketEvent('onSocketMessage', 'offSocketMessage'),
+	error: createSocketEvent('onSocketError', 'offSocketError'),
+	close: createSocketEvent('onSocketClose', 'offSocketClose'),
 }
 
 /**
@@ -285,7 +308,11 @@ export function closeSocket(opts) {
  * @param {Function} callback 
  */
 export function onSocketOpen(callbackFn) {
-	return invokeAPI('onSocketOpen', { callback: callback.store(callbackFn, true) })
+	return globalSocketEvents.open.on(callbackFn)
+}
+
+export function offSocketOpen(callbackFn) {
+	return globalSocketEvents.open.off(callbackFn)
 }
 
 /**
@@ -294,7 +321,11 @@ export function onSocketOpen(callbackFn) {
  * @param {Function} callback 
  */
 export function onSocketMessage(callbackFn) {
-	return invokeAPI('onSocketMessage', { callback: callback.store(callbackFn, true) })
+	return globalSocketEvents.message.on(callbackFn)
+}
+
+export function offSocketMessage(callbackFn) {
+	return globalSocketEvents.message.off(callbackFn)
 }
 
 /**
@@ -303,7 +334,11 @@ export function onSocketMessage(callbackFn) {
  * @param {Function} callback 
  */
 export function onSocketError(callbackFn) {
-	return invokeAPI('onSocketError', { callback: callback.store(callbackFn, true) })
+	return globalSocketEvents.error.on(callbackFn)
+}
+
+export function offSocketError(callbackFn) {
+	return globalSocketEvents.error.off(callbackFn)
 }
 
 /**
@@ -312,5 +347,9 @@ export function onSocketError(callbackFn) {
  * @param {Function} callback 
  */
 export function onSocketClose(callbackFn) {
-	return invokeAPI('onSocketClose', { callback: callback.store(callbackFn, true) })
+	return globalSocketEvents.close.on(callbackFn)
+}
+
+export function offSocketClose(callbackFn) {
+	return globalSocketEvents.close.off(callbackFn)
 }

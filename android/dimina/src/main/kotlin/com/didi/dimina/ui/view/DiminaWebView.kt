@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.didi.dimina.common.JavaScriptUtils
 import com.didi.dimina.common.LogUtils
 import org.json.JSONObject
 
@@ -25,6 +26,7 @@ fun DiminaWebView(
     onPageCompleted: () -> Unit,
     modifier: Modifier = Modifier,
     identifier: String? = null,
+    appId: String = "",
     enableCache: Boolean = true,
     onNativeOverlayReady: (overlay: FrameLayout) -> Unit = {}
 ) {
@@ -70,10 +72,10 @@ fun DiminaWebView(
             factory = { context ->
                 if (enableCache) {
                     // 使用缓存管理器获取WebView实例
-                    WebViewCacheManager.getWebView(context, onPageCompleted, webViewIdentifier)
+                    WebViewCacheManager.getWebView(context, onPageCompleted, webViewIdentifier, appId)
                 } else {
                     // 传统方式创建WebView（使用WebViewCacheManager中的统一配置）
-                    createWebView(context, onPageCompleted)
+                    createWebView(context, onPageCompleted, appId)
                 }.apply {
                     onInitReady(this)
                     LogUtils.d(TAG, "WebView initialized with identifier: $webViewIdentifier")
@@ -97,20 +99,11 @@ fun WebView.postMessage(
     body: Map<String, String>,
     callback: ((String?) -> Unit)? = null
 ) {
-    // 构建 JSON body
-    val jsonBody = StringBuilder()
-    jsonBody.append("{")
-    body.entries.forEachIndexed { index, entry ->
-        if (index > 0) jsonBody.append(",")
-        jsonBody.append("\"${entry.key}\":\"${entry.value}\"")
-    }
-    jsonBody.append("}")
-
-    postMessage("{type:'$type', body:$jsonBody}", callback)
+    postMessage(JavaScriptUtils.message(type, body), callback)
 }
 
 fun WebView.postMessage(msg: String, callback: ((String?) -> Unit)? = null) {
-    this.evaluateJavascript("DiminaRenderBridge.onMessage($msg)", callback)
+    this.evaluateJavascript(JavaScriptUtils.invokeWithJson("DiminaRenderBridge.onMessage", msg), callback)
 }
 
 

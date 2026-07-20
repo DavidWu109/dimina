@@ -78,11 +78,13 @@ public class DMPContainerApi: NSObject {
         _ = SystemAPI(app: app)
         _ = UpdateAPI(app: app)
         _ = NetworkAPI(app: app)
+        _ = LocalNetworkAPI(app: app)
         _ = StorageAPI(app: app)
         _ = InteractionAPI(app: app)
         _ = ImageAPI(app: app)
         _ = AudioAPI(app: app)
         _ = VideoAPI(app: app)
+        _ = FileAPI(app: app)
         _ = FileSystemAPI(app: app)
         _ = MenuAPI(app: app)
         _ = NavigationBarAPI(app: app)
@@ -98,6 +100,8 @@ public class DMPContainerApi: NSObject {
         _ = PhoneAPI(app: app)
         _ = VibrateAPI(app: app)
         _ = DeviceAPI(app: app)
+        _ = ScanAPI(app: app)
+        _ = BluetoothAPI(app: app)
         let sortedKeys = bridgeHandlerMap.keys.sorted().joined(separator: ",")
         DMPLog.bridge.info("built-in APIs registered, bridgeHandlerMap=\(bridgeHandlerMap.count) keys=\(sortedKeys)")
 
@@ -244,7 +248,7 @@ public class DMPContainerApi: NSObject {
         if let handler = Self.getHandler(for: name) {
             return handler(data, env, callback)
         }
-        print("未找到方法: \(name)")
+        DMPLogger.debug("未找到方法: \(name)")
         return DMPNoneResult()
     }
     
@@ -285,4 +289,3 @@ public class DMPContainerApi: NSObject {
         invokeCallback(callback, type: .fail, param: param, errMsg: errMsg)
     }
 }
-

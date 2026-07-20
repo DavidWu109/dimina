@@ -1,24 +1,32 @@
 import path from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
-import { Listr } from 'listr2'
+import { Listr, PRESET_TIMER } from 'listr2'
+import { formatCompileProgress } from './common/compile-progress.js'
 import { createDist, publishToDist } from './common/publish.js'
 import { artCode } from './common/utils.js'
 import { workerPool } from './common/worker-pool.js'
 import { NpmBuilder } from './common/npm-builder.js'
 import { compileConfig } from './core/index.js'
-import { getAppConfigInfo, getAppId, getAppName, getPages, getTargetPath, getWorkPath, storeInfo } from './env.js'
+import { getAppConfigInfo, getAppId, getAppName, getAppStyleScopeId, getPages, getTargetPath, getWorkPath, storeInfo } from './env.js'
 
 let isPrinted = false
+const previousCompatibilityWarnings = new Map()
 
 /**
  * 构建命令入口
  * @param {string} targetPath 编译产物目标路径
  * @param {string} workPath 编译工作目录
- * @param {boolean} useAppIdDir 产物根目录是否包含appId
+ * @param {boolean} useAppIdDir 产物根目录是否包含 appId
+ * @param {object} [options] 构建选项
+ * @param {boolean} [options.sourcemap] 是否生成 sourcemap
+ * @param {{ template?: string[], style?: string[], viewScript?: string[] }} [options.fileTypes]
+ *   自定义文件类型，在内置 wx/dd 类型基础上追加；template 为模板扩展名，style 为样式扩展名，
+ *   viewScript 为视图脚本扩展名和内联标签名
  */
 export default async function build(targetPath, workPath, useAppIdDir = true, options = {}) {
-	const { sourcemap = false } = options
+	const { sourcemap = false, fileTypes } = options
 	if (!isPrinted) {
 		artCode()
 		isPrinted = true
@@ -26,14 +34,14 @@ export default async function build(targetPath, workPath, useAppIdDir = true, op
 	const tasks = new Listr(
 		[
 			{
-				title: '准备项目编译环境',
+				title: '初始化项目',
 				task: (_, task) =>
 					task.newListr(
 						[
 							{
 								title: '收集配置信息',
 								task: (ctx) => {
-									ctx.storeInfo = storeInfo(workPath)
+									ctx.storeInfo = storeInfo(workPath, { fileTypes })
 								},
 							},
 							{
@@ -60,34 +68,38 @@ export default async function build(targetPath, workPath, useAppIdDir = true, op
 					),
 			},
 			{
-				title: `开始编译:${workPath.split('/').pop()}`,
+				title: `编译项目 · ${path.basename(path.resolve(workPath))}`,
 				task: (ctx, task) => {
 					const pages = getPages()
 					ctx.pages = pages
+					ctx.compatibilityWarnings = new Set()
 
 					return task.newListr(
 						[
 							{
-								title: '编译页面文件',
+								title: '编译视图',
+								rendererOptions: { outputBar: true, persistentOutput: false },
 								task: async (ctx, task) => {
 									// ddml, wxml
 									return runCompileInWorker('view', ctx, task, { sourcemap })
 								},
 							},
 							{
-								title: '编译页面逻辑',
+								title: '编译逻辑',
+								rendererOptions: { outputBar: true, persistentOutput: false },
 								task: async (ctx, task) => {
 									return runCompileInWorker('logic', ctx, task, { sourcemap })
 								},
 							},
 							{
-								title: '编译样式文件',
+								title: '编译样式',
+								rendererOptions: { outputBar: true, persistentOutput: false },
 								task: async (ctx, task) => {
 									// ddss, wxss
 									// 主包添加 app 样式
 									pages.mainPages.unshift({
 										path: 'app',
-										id: '',
+										id: getAppStyleScopeId(),
 									})
 									return runCompileInWorker('style', ctx, task, { sourcemap })
 								},
@@ -98,17 +110,26 @@ export default async function build(targetPath, workPath, useAppIdDir = true, op
 				},
 			},
 			{
-				title: '输出编译产物',
+				title: '写入编译产物',
 				task: () => {
 					publishToDist(targetPath, useAppIdDir)
 				},
 			},
 		],
-		{ concurrent: false },
+		{
+			concurrent: false,
+			rendererOptions: {
+				collapseSubtasks: true,
+				formatOutput: 'truncate',
+				timer: PRESET_TIMER,
+			},
+			fallbackRendererOptions: { timer: PRESET_TIMER },
+		},
 	)
 
 	try {
 		const context = await tasks.run()
+		printCompatibilityWarnings(workPath, context.compatibilityWarnings)
 		return {
 			appId: getAppId(),
 			name: getAppName(),
@@ -144,18 +165,20 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 		// 接收 Worker 完成后的消息
 		worker.on('message', (message) => {
 			try {
-				if (message.completedTasks) {
-					const progress = message.completedTasks / totalTasks
-					const percentage = progress * 100
-					const barLength = 30
-					const filledLength = Math.ceil(barLength * progress)
-					const bar = '\u2588'.repeat(filledLength) + '\u2591'.repeat(barLength - filledLength)
-					task.output = `[${bar}] ${percentage.toFixed(2)}%`
+				for (const warning of message.compatibilityWarnings || []) {
+					ctx.compatibilityWarnings.add(warning)
+				}
+
+				if (process.stdout.isTTY && message.completedTasks !== undefined) {
+					task.output = formatCompileProgress(message.completedTasks, totalTasks)
 				}
 
 				if (message.success) {
 					if (isResolved) return
 					isResolved = true
+					if (process.stdout.isTTY && totalTasks > 0) {
+						task.output = formatCompileProgress(totalTasks, totalTasks)
+					}
 					worker.terminate()
 					resolve()
 				}
@@ -193,4 +216,24 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 			}
 		})
 	}))
+}
+
+function printCompatibilityWarnings(workPath, warnings = new Set()) {
+	const projectPath = path.resolve(workPath)
+	const hasPreviousResult = previousCompatibilityWarnings.has(projectPath)
+	const previousWarnings = previousCompatibilityWarnings.get(projectPath) || new Set()
+	const currentWarnings = new Set(warnings)
+	const newWarnings = [...currentWarnings].filter(warning => !previousWarnings.has(warning))
+	previousCompatibilityWarnings.set(projectPath, currentWarnings)
+
+	if (newWarnings.length === 0) {
+		return
+	}
+
+	const qualifier = hasPreviousResult ? ' new' : ''
+	const suffix = newWarnings.length === 1 ? '' : 's'
+	console.warn(`\n[compat] ${newWarnings.length}${qualifier} compatibility warning${suffix}`)
+	for (const warning of newWarnings) {
+		console.warn(`  - ${warning.replace(/^\[compat\]\s*/, '')}`)
+	}
 }

@@ -15,7 +15,7 @@ class Loader {
 	 * @param {*} opts
 	 */
 	loadResource(opts) {
-		const { appId, bridgeId, pagePath, root, baseUrl } = opts
+		const { appId, bridgeId, pagePath, root, baseUrl, resourceLoadId } = opts
 		// webworker 需要主动加载资源
 		if (isWebWorker) {
 			this.isScriptLoaded = this.isScriptLoaded || {}
@@ -35,6 +35,7 @@ class Loader {
 			target: 'service',
 			body: {
 				bridgeId,
+				resourceLoadId,
 			},
 		})
 	}

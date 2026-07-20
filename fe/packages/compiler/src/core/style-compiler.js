@@ -9,9 +9,8 @@ import postcss from 'postcss'
 import selectorParser from 'postcss-selector-parser'
 import * as sass from 'sass'
 import { collectAssets, tagWhiteList, transformRpx } from '../common/utils.js'
-import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
+import { getAppId, getComponent, getContentByPath, getStyleExts, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
-const fileType = ['.wxss', '.ddss', '.less', '.scss', '.sass']
 const compileRes = new Map()
 
 if (!isMainThread) {
@@ -64,7 +63,7 @@ if (!isMainThread) {
 async function compileSS(pages, root, progress) {
 	// page 样式
 	for (const page of pages) {
-		const code = await buildCompileCss(page, [], new Set()) || ''
+		const code = await buildCompileCss(page, new Set()) || ''
 		const filename = `${page.path.replace(/\//g, '_')}`
 		if (root) {
 			const subDir = `${getTargetPath()}/${root}`
@@ -87,40 +86,78 @@ async function compileSS(pages, root, progress) {
 	}
 }
 
-async function buildCompileCss(module, depthChain = [], compiledPaths = new Set()) {
-	const currentPath = module.path || module.absolutePath
+async function buildCompileCss(module, compiledPaths = new Set()) {
+	let result = ''
+	const pendingModules = [module]
 
-	// Circular dependency detected
-	if (depthChain.includes(currentPath)) {
-		console.warn('[style]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
-		return ''
-	}
-	// Deep dependency chain detected
-	if (depthChain.length > 20) {
-		console.warn('[style]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
-		return ''
-	}
-	if (compiledPaths.has(currentPath)) {
-		return ''
-	}
-	compiledPaths.add(currentPath)
-	depthChain = [...depthChain, currentPath]
-	let result = await enhanceCSS(module) || ''
+	while (pendingModules.length > 0) {
+		const currentModule = pendingModules.pop()
+		const currentPath = currentModule.path || currentModule.absolutePath
 
-	if (module.usingComponents) {
-		// component 样式
-		// 组件对应 wxss 文件的样式，只对组件 wxml 内的节点生效
-		// https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/wxml-wxss.html
-		for (const componentInfo of Object.values(module.usingComponents)) {
-			const componentModule = getComponent(componentInfo)
-			if (!componentModule) {
-				continue
+		// A component stylesheet only needs to be emitted once per page traversal.
+		// Mark it before visiting children so self and mutual references close
+		// naturally without a fixed depth limit.
+		if (compiledPaths.has(currentPath)) {
+			continue
+		}
+		compiledPaths.add(currentPath)
+		result += await enhanceCSS(currentModule) || ''
+
+		// Preserve the original depth-first, declaration-order traversal while
+		// using an explicit stack instead of the JavaScript call stack.
+		const componentPaths = Object.values(currentModule.usingComponents || {})
+		for (let index = componentPaths.length - 1; index >= 0; index--) {
+			const componentModule = getComponent(componentPaths[index])
+			if (componentModule) {
+				pendingModules.push(componentModule)
 			}
-			result += await buildCompileCss(componentModule, depthChain, compiledPaths) || ''
 		}
 	}
 
 	return result
+}
+
+function boostExternalClassSelectors(cssCode, moduleId) {
+	if (!moduleId || !cssCode) {
+		return cssCode
+	}
+
+	const scopeAttribute = `data-v-${moduleId}`
+	const externalScopeAttribute = 'data-dd-external-class-scope'
+	const ast = postcss.parse(cssCode)
+
+	ast.walkRules((rule) => {
+		if (!rule.selector.includes(`[${scopeAttribute}]`)) {
+			return
+		}
+
+		rule.selector = selectorParser((selectors) => {
+			for (const selector of [...selectors.nodes]) {
+				const boostedSelector = selector.clone()
+				const scopeNodes = []
+				boostedSelector.walkAttributes((attribute) => {
+					if (attribute.attribute === scopeAttribute) {
+						scopeNodes.push(attribute)
+					}
+				})
+
+				const targetScope = scopeNodes.at(-1)
+				if (!targetScope) {
+					continue
+				}
+
+				targetScope.parent.insertAfter(targetScope, selectorParser.attribute({
+					attribute: externalScopeAttribute,
+					operator: '~=',
+					quoteMark: '"',
+					value: scopeAttribute,
+				}))
+				selectors.append(boostedSelector)
+			}
+		}).processSync(rule.selector)
+	})
+
+	return ast.toResult().css
 }
 
 async function enhanceCSS(module) {
@@ -184,7 +221,7 @@ async function enhanceCSS(module) {
 
 			node.remove()
 
-			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }, [], new Set()))
+			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }, new Set()))
 		}
 		else if (node.type === 'rule') {
 			// 处理 ::v-deep
@@ -226,15 +263,13 @@ async function enhanceCSS(module) {
 		id: moduleId,
 		scoped: !!moduleId,
 	}).code
-
-	// 移除基础组件选择器的 scoped 属性
-	const cleanedCode = await removeBaseComponentScope(scopedCode, moduleId)
+	const externalClassCode = boostExternalClassSelectors(scopedCode, moduleId)
 
 	// 统一后处理：autoprefixer + 压缩
 	const res = await postcss([
 		autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }), 
 		cssnano()
-	]).process(cleanedCode, { from: undefined })
+	]).process(externalClassCode, { from: undefined })
 
 	// 处理导入的样式
 	const importCss = (await Promise.all(promises))
@@ -273,7 +308,7 @@ function getAbsolutePath(modulePath) {
 	const workPath = getWorkPath()
 	const src = modulePath.startsWith('/') ? modulePath : `/${modulePath}`
 
-	for (const ssType of fileType) {
+	for (const ssType of getStyleExts()) {
 		const ssFullPath = `${workPath}${src}${ssType}`
 		if (fs.existsSync(ssFullPath)) {
 			return ssFullPath
@@ -300,39 +335,6 @@ function normalizeRootStyleImports(source, workPath = getWorkPath()) {
 }
 
 /**
- * 移除基础组件选择器的 scoped 属性
- * @param {string} css - 包含 scoped 属性的 CSS
- * @param {string} moduleId - 模块 ID
- * @returns {Promise<string>} - 清理后的 CSS
- */
-async function removeBaseComponentScope(css, moduleId) {
-	if (!moduleId) return css
-
-	const ast = postcss.parse(css)
-	const scopeAttrName = `data-v-${moduleId}`
-
-	ast.walkRules((rule) => {
-		// 检查选择器是否包含基础组件类名
-		const hasBaseComponent = tagWhiteList.some(tag => 
-			rule.selector.includes(`.dd-${tag}`)
-		)
-
-		if (hasBaseComponent && rule.selector.includes(scopeAttrName)) {
-			// 移除 scoped 属性选择器
-			rule.selector = selectorParser((selectors) => {
-				selectors.walkAttributes((attr) => {
-					if (attr.attribute === scopeAttrName) {
-						attr.remove()
-					}
-				})
-			}).processSync(rule.selector)
-		}
-	})
-
-	return ast.toResult().css
-}
-
-/**
  * Ensures that all @import statements in CSS end with semicolons
  * @param {string} css - The CSS content to process
  * @returns {string} - The processed CSS with semicolons added to @import statements as needed
@@ -352,16 +354,13 @@ function ensureImportSemicolons(css) {
  * @returns {string} - 转换后的选择器
  */
 function processHostSelector(selector, moduleId) {
-	// 处理不同的 :host 选择器模式
+	const hostSelector = `[data-dd-style-host~="${moduleId}"]`
+
 	return selector
-		// :host 单独使用，选择组件根节点
-		.replace(/^:host$/, `[data-v-${moduleId}]`)
 		// :host(.class) 选择带有特定类的组件根节点
-		.replace(/:host\(([^)]+)\)/g, `[data-v-${moduleId}]$1`)
-		// :host 后跟其他选择器，如 :host .child
-		.replace(/:host\s+/g, `[data-v-${moduleId}] `)
-		// :host 作为复合选择器的一部分，如 :host.active
-		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
+		.replace(/:host\(([^)]+)\)/g, `${hostSelector}$1`)
+		// 宿主标记与 data-v 样式作用域分离，避免 shared 作用域扩散后 :host 误命中页面节点。
+		.replace(/:host(?![\w-])/g, hostSelector)
 }
 
-export { compileSS, ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, processHostSelector, removeBaseComponentScope, resolveStyleImportPath }
+export { boostExternalClassSelectors, compileSS, ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, processHostSelector, resolveStyleImportPath }

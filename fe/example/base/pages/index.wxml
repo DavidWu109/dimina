@@ -68,11 +68,14 @@
   <navigator class="intro" url="api/index">
     <view class="weui-cell__bd">API调用</view>
   </navigator>
+  <navigator class="intro" url="file-system/index">
+    <view class="weui-cell__bd">文件系统</view>
+  </navigator>
   <navigator class="intro" url="intersection-observer/index">
     <view class="weui-cell__bd">元素交叉观察</view>
   </navigator>
   <navigator class="intro" url="project-mixed/pages/home/index">
-    <view class="weui-cell__bd">聚合页面</view>
+    <view class="weui-cell__bd">混合能力实验室</view>
   </navigator>
   <navigator class="intro" url="package/index">
     <view class="weui-cell__bd">分包异步化</view>
@@ -97,6 +100,9 @@
   </navigator>
   <navigator class="intro" url="video/index">
     <view class="weui-cell__bd">Video</view>
+  </navigator>
+  <navigator class="intro" url="web-view/index">
+    <view class="weui-cell__bd">WebView</view>
   </navigator>
   <navigator class="intro" url="web-gl/index">
     <view class="weui-cell__bd">WebGL</view>

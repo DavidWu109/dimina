@@ -1,4 +1,5 @@
 import { isFunction } from '@dimina/common'
+import { invokeSafely } from '../../core/safe-callback'
 
 const lifecycleMethods = ['onLaunch', 'onShow', 'onHide']
 const reservedProperties = ['globalData']
@@ -49,15 +50,15 @@ export class App {
 	}
 
 	invokeSomeLifecycle() {
-		this.onLaunch?.(this.options)
-		this.onShow?.(this.options)
+		invokeSafely(this, this.onLaunch, [this.options], 'onLaunch')
+		invokeSafely(this, this.onShow, [this.options], 'onShow')
 	}
 
 	appShow() {
-		this.onShow?.(this.options)
+		invokeSafely(this, this.onShow, [this.options], 'onShow')
 	}
 
 	appHide() {
-		this.onHide?.()
+		invokeSafely(this, this.onHide, [], 'onHide')
 	}
 }

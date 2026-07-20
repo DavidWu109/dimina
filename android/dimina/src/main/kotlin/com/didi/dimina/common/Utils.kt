@@ -239,10 +239,17 @@ object Utils {
         val displayMetrics = currentActivity.resources.displayMetrics
         val screenWidth = pxToDpInt(displayMetrics.widthPixels, currentActivity)
         val screenHeight = pxToDpInt(displayMetrics.heightPixels, currentActivity)
+        val windowBounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            currentActivity.windowManager.currentWindowMetrics.bounds
+        } else {
+            null
+        }
+        val windowWidth = windowBounds?.width()?.let { pxToDpInt(it, currentActivity) } ?: screenWidth
+        val fullWindowHeight = windowBounds?.height()?.let { pxToDpInt(it, currentActivity) } ?: screenHeight
         val statusBarHeight = getStatusBarHeight(currentActivity)
         val navigationBarHeight = getNavigationBarHeight(currentActivity)
         val safeAreaTop = statusBarHeight
-        val safeAreaBottom = (screenHeight - navigationBarHeight).coerceAtLeast(safeAreaTop)
+        val safeAreaBottom = (fullWindowHeight - navigationBarHeight).coerceAtLeast(safeAreaTop)
         val safeAreaHeight = (safeAreaBottom - safeAreaTop).coerceAtLeast(0)
 
         return JSONObject().apply {
@@ -251,16 +258,16 @@ object Utils {
             put("pixelRatio", displayMetrics.density)
             put("screenWidth", screenWidth)
             put("screenHeight", screenHeight)
-            put("windowWidth", screenWidth)
+            put("windowWidth", windowWidth)
             put("windowHeight", safeAreaHeight)
             put("statusBarHeight", statusBarHeight)
             put("screenTop", statusBarHeight)
             put("safeArea", JSONObject().apply {
                 put("left", 0)
-                put("right", screenWidth)
+                put("right", windowWidth)
                 put("top", safeAreaTop)
                 put("bottom", safeAreaBottom)
-                put("width", screenWidth)
+                put("width", windowWidth)
                 put("height", safeAreaHeight)
             })
             put("language", currentActivity.resources.configuration.locale.language)
@@ -280,23 +287,20 @@ object Utils {
 
     fun getMenuButtonBoundingClientRect(currentActivity: Activity): JSONObject {
         val systemInfo = getMiniProgramSystemInfo(currentActivity)
-        val width = 87
-        val height = 32
-        val navigationBarContentHeight = 64
-        val top = systemInfo.getInt("statusBarHeight") + (navigationBarContentHeight - height) / 2
-        val right = systemInfo.getInt("windowWidth") - 10
-        val left = right - width
-        val bottom = top + height
+        val rect = MenuButtonLayout.calculate(
+            windowWidth = systemInfo.getInt("windowWidth"),
+            statusBarHeight = systemInfo.getInt("statusBarHeight"),
+        )
 
         return JSONObject().apply {
-            put("width", width)
-            put("height", height)
-            put("top", top)
-            put("right", right)
-            put("bottom", bottom)
-            put("left", left)
-            put("x", left)
-            put("y", top)
+            put("width", rect.width)
+            put("height", rect.height)
+            put("top", rect.top)
+            put("right", rect.right)
+            put("bottom", rect.bottom)
+            put("left", rect.left)
+            put("x", rect.left)
+            put("y", rect.top)
         }
     }
 

@@ -56,6 +56,12 @@ export class DMPApp {
   private _render: DMPRender = new DMPRender(this)
   router: DRouter = DRouter.getInstance();
 
+  private static readonly deviceMetricsChangeCallback = (_metrics: DMPMap): void => {
+    DMPAppManager.sharedInstance().appPools.forEach((app: DMPApp) => {
+      app.container.updateHostEnv()
+    })
+  }
+
   public get render(): DMPRender {
     return this._render
   }
@@ -141,7 +147,12 @@ export class DMPApp {
         DMPLogger.e(Tags.LAUNCH, `ImageKnifePro initFileCache failed: ${error.message}`)
       })
     context.getWindowStage().on('windowStageEvent', DMPAppLifecycle.onWindowStageEvent);
-    DMPDeviceUtil.prepareSafeAreaAndDisplayWH(DMPApp._entryContext.getContext())
+    try {
+      DMPDeviceUtil.prepareSafeAreaAndDisplayWHForWindow(context.getWindowStage().getMainWindowSync())
+    } catch (_) {
+      DMPDeviceUtil.prepareSafeAreaAndDisplayWH(DMPApp._entryContext.getContext())
+    }
+    DMPDeviceUtil.addMetricsChangeListener(DMPApp.deviceMetricsChangeCallback)
   }
 
   getWebController(webViewId: number): DMPWebViewController {
@@ -196,6 +207,18 @@ export class DMPApp {
     };
 
     setTimeout(launchMain, 100);
+  }
+
+  async reEnter(config?: DMPLaunchConfig) {
+    const currentLaunchConfig = this.navigatorManager.getCurNavigator()?.getLaunchConfig()
+    const nextLaunchConfig = currentLaunchConfig ?? config ?? new DMPLaunchConfig()
+    if (config) {
+      nextLaunchConfig.appEntryPath = config.appEntryPath
+      nextLaunchConfig.query = config.query
+    }
+    this.navigatorManager.closeAllNavigators(false)
+    await this.startMainService()
+    this.launch(nextLaunchConfig)
   }
 
   resetAndStartDimina(config: DMPLaunchConfig) {
@@ -274,6 +297,7 @@ export class DMPApp {
   }
 
   public closeDimina() {
+    this.navigatorManager.closeAllNavigators(false)
     this.destroyEngine()
     this.destroyApp()
     DMPLogger.i(Tags.LAUNCH, 'Doing something in closeApp')
@@ -315,7 +339,7 @@ export class DMPApp {
 
   destroyEngine() {
     // 销毁前取消所有 extOnBridge 订阅，防止内存泄漏
-    this._appModuleManager.getExtBridgeModule()?.cancelAllSubscriptions();
+    this._appModuleManager.dispose();
     this._service.destroy()
     this.engineStatus.setStatus(EngineStatus.STOP)
   }
@@ -401,8 +425,14 @@ export class DMPApp {
     // Inject custom API namespaces before loading service.js
     const namespaces = DMPApp._apiNamespaces
     if (namespaces.length > 0) {
-      const json = namespaces.map((n: string) => `"${n}"`).join(",")
-      this._service.executeScript(`globalThis.__diminaApiNamespaces = [${json}]`)
+      const json = JSON.stringify(namespaces)
+      this._service.executeScript(`globalThis.__diminaApiNamespaces = ${json}`)
+    }
+    // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
+    const registeredApis = this._appModuleManager.getAllRegisteredApiNames()
+    if (registeredApis.length > 0) {
+      const apisJson = JSON.stringify(registeredApis)
+      this._service.executeScript(`globalThis.__diminaRegisteredApis = ${apisJson}`)
     }
     const serviceJsPath = await this._bundleManager.requestServiceJsUri();
     await this._service.loadFileUri(serviceJsPath);

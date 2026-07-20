@@ -114,10 +114,17 @@ const props = defineProps({
 		default: false,
 		required: false,
 	},
+	autoFill: {
+		type: String,
+		default: '',
+	},
 })
 
 const valColor = computed(() => {
-	return props.activeColor || props.selectedColor
+	const attrs = info.attrs || {}
+	if ('activeColor' in attrs || 'active-color' in attrs) return props.activeColor
+	if ('selectedColor' in attrs || 'selected-color' in attrs) return props.selectedColor
+	return props.activeColor
 })
 
 const backColor = computed(() => {
@@ -129,12 +136,12 @@ const backColor = computed(() => {
 function roundToStep(value) {
 	const min = Number(props.min)
 	const max = Number(props.max)
-	const step = Number(props.step)
+	const step = Math.max(Number(props.step) || 1, Number.EPSILON)
 
 	// Clamps a number between a minimum and maximum value.
 	const clamp = Math.min(Math.max(value, min), max)
 	// Rounds a number to the nearest multiple of a given step size.
-	return Math.round(clamp / step) * step
+	return Math.min(Math.max(min + Math.round((clamp - min) / step) * step, min), max)
 }
 
 const sliderHandle = ref(null)
@@ -144,13 +151,14 @@ const disValue = ref(roundToStep(Number(props.value)))
 
 // 注入父组件提供的方法
 const collectFormValue = inject('collectFormValue', undefined)
+const registerFormControl = inject('registerFormControl', undefined)
 collectFormValue?.(props.name, disValue.value)
 
 const range = computed(() => Number(props.max) - Number(props.min))
 
 // 计算百分比
 const percent = computed(() => {
-	return ((disValue.value - Number(props.min)) / range.value) * 100
+	return range.value > 0 ? ((disValue.value - Number(props.min)) / range.value) * 100 : 0
 })
 
 let isDragging = false
@@ -163,6 +171,29 @@ function startDrag() {
 }
 
 const info = useInfo()
+
+watch(() => props.value, value => {
+	disValue.value = roundToStep(Number(value))
+	collectFormValue?.(props.name, disValue.value)
+})
+
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue: () => disValue.value,
+	reset: () => {
+		disValue.value = Number(props.min)
+		collectFormValue?.(props.name, disValue.value)
+	},
+})
+onBeforeUnmount(() => unregisterFormControl?.())
+
+const blockStyle = computed(() => ({
+	backgroundColor: props.blockColor,
+	height: `${props.blockSize}px`,
+	marginLeft: `${-props.blockSize / 2}px`,
+	marginTop: `${-props.blockSize / 2}px`,
+	width: `${props.blockSize}px`,
+}))
 
 function drag(event) {
 	if (!isDragging || Boolean(props.disabled)) {
@@ -244,15 +275,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<div :id="id" v-bind="$attrs" class="dd-slider">
+	<div
+		:id="id" v-bind="$attrs" class="dd-slider" role="slider" :aria-valuemin="min" :aria-valuemax="max"
+		:aria-valuenow="disValue" :aria-disabled="disabled" :class="{ 'dd-slider-disabled': disabled }"
+	>
 		<div class="dd-slider-wrapper">
 			<div ref="sliderHandle" class="dd-slider-tap-area" @click="handleClick">
 				<div class="dd-slider-handle-wrapper" :style="backColor">
 					<div
-						class="dd-slider-handle" :style="{ left: `${percent}%` }" @touchstart="startDrag"
+						class="dd-slider-handle" :style="{ ...blockStyle, left: `${percent}%`, backgroundColor: 'transparent' }" @touchstart="startDrag"
 						@mousedown="startDrag"
 					/>
-					<div class="dd-slider-thumb" :style="{ left: `${percent}%` }" />
+					<div class="dd-slider-thumb" :style="{ ...blockStyle, left: `${percent}%` }" />
 					<div class="dd-slider-track" :style="{ width: `${percent}%`, backgroundColor: valColor }" />
 					<div class="dd-slider-step" />
 				</div>
@@ -271,7 +305,7 @@ onBeforeUnmount(() => {
 	display: block;
 
 	&[hidden] {
-		display: block;
+		display: none;
 	}
 }
 

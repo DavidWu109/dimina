@@ -45,7 +45,7 @@ public class DMPWebViewOptimizer {
             config.processPool = DMPWebViewPool.sharedProcessPool
         }
         
-        print("🔧 WebViewOptimizer: Applied process pool optimization")
+        DMPLogger.debug("🔧 WebViewOptimizer: Applied process pool optimization")
     }
     
     // MARK: - Memory management optimization
@@ -75,7 +75,7 @@ public class DMPWebViewOptimizer {
             config.upgradeKnownHostsToHTTPS = false
         }
         
-        print("🧠 WebViewOptimizer: Applied memory management optimization")
+        DMPLogger.debug("🧠 WebViewOptimizer: Applied memory management optimization")
     }
     
     // MARK: - Rendering optimization
@@ -96,7 +96,7 @@ public class DMPWebViewOptimizer {
             // config.preferences.isElementFullscreenEnabled = true
         }
         
-        print("🎨 WebViewOptimizer: Applied rendering optimization")
+        DMPLogger.debug("🎨 WebViewOptimizer: Applied rendering optimization")
     }
     
     // MARK: - Network optimization
@@ -105,16 +105,10 @@ public class DMPWebViewOptimizer {
         // Enable faster network handling
         if #available(iOS 13.0, *) {
             // Optimize network request handling
-            config.preferences.javaScriptCanOpenWindowsAutomatically = true
+            config.preferences.javaScriptCanOpenWindowsAutomatically = false
         }
         
-        // File access optimization
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        if #available(iOS 10.0, *) {
-            config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
-        }
-        
-        print("🌐 WebViewOptimizer: Applied network optimization")
+        DMPLogger.debug("🌐 WebViewOptimizer: Applied network optimization")
     }
     
     // MARK: - JavaScript optimization
@@ -133,7 +127,7 @@ public class DMPWebViewOptimizer {
             // config.preferences.isTextInteractionEnabled = true
         }
         
-        print("⚡ WebViewOptimizer: Applied JavaScript optimization")
+        DMPLogger.debug("⚡ WebViewOptimizer: Applied JavaScript optimization")
     }
     
     // MARK: - System-specific optimization
@@ -160,7 +154,7 @@ public class DMPWebViewOptimizer {
             applyiOS16Optimizations(to: config)
         }
         
-        print("📱 WebViewOptimizer: Applied system-specific optimization")
+        DMPLogger.debug("📱 WebViewOptimizer: Applied system-specific optimization")
     }
     
     @available(iOS 13.0, *)
@@ -219,25 +213,27 @@ public class DMPWebViewOptimizer {
              }
          }
 
+         DMPLogger.debug("🔗 WebViewOptimizer: Set up URL scheme handlers")
          return handlers
-    }
+     }
     
     // MARK: - WebView instance optimization
     
     /// Apply runtime optimizations to created WebView instances
     /// - Parameter webView: WKWebView instance
     public func optimizeWebViewInstance(_ webView: WKWebView) {
-        // Enable debugging (only in development environment)
+        #if DEBUG
         if #available(iOS 16.4, *) {
             webView.isInspectable = true
         }
+        #endif
         
         // Performance-related settings
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         applyScrollOptimizations(to: webView)
         
-        print("🚀 WebViewOptimizer: Optimized WebView instance")
+        DMPLogger.debug("🚀 WebViewOptimizer: Optimized WebView instance")
     }
     
     private func applyScrollOptimizations(to webView: WKWebView) {

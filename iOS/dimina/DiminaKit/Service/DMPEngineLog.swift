@@ -63,16 +63,16 @@ public class DMPEngineLog {
 
         switch level {
         case .log, .info:
-            print("[\(level.prefix)] \(message)")
+            DMPLogger.debug("[\(level.prefix)] \(message)")
             // 记录含关键字的 log
             if message.contains("DEBUG") || message.contains("getCommonConfig") || message.contains("error") || message.contains("request") {
                 writeToLogFile("[\(level.prefix)] \(message)")
             }
         case .warn:
-            print("⚠️ [\(level.prefix)] \(message)")
+            DMPLogger.debug("⚠️ [\(level.prefix)] \(message)")
             writeToLogFile("⚠️ [\(level.prefix)] \(message)")
         case .error:
-            print("❌ [\(level.prefix)] \(message)")
+            DMPLogger.debug("❌ [\(level.prefix)] \(message)")
             writeToLogFile("❌ [\(level.prefix)] \(message)")
         }
     }
@@ -135,7 +135,6 @@ public class DMPEngineLog {
         return value.toString() ?? "Unknown"
     }
 }
-
 
 
 

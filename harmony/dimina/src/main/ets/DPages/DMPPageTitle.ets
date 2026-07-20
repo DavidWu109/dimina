@@ -3,6 +3,7 @@ import { DMPPageStyle } from './DMPPageStyle'
 import { DMPWindowUtil } from '../Utils/DMPWindowUtils'
 import { DMPPageRecord } from '../Navigator/DMPPageRecord'
 import { DMPAppManager } from '../DApp/DMPAppManager'
+import { DMPMenuButtonLayout } from '../Utils/DMPMenuButtonLayout'
 
 @Component
 export struct DMPPageTitle {
@@ -12,7 +13,7 @@ export struct DMPPageTitle {
   appIndex: number
   @Prop
   webViewId: number
-  private readonly titleHorizontalInset: number = 110
+  private readonly titleHorizontalInset: number = DMPMenuButtonLayout.titleHorizontalInset
 
   aboutToAppear(): void {
 

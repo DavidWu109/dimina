@@ -4,20 +4,20 @@ import { DMPLogger } from '../EventTrack/DMPLogger';
 import batteryInfo from '@ohos.batteryInfo';
 import deviceInfo from '@ohos.deviceInfo';
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils';
-import { bundleManager } from '@kit.AbilityKit';
+import { bundleManager, ConfigurationConstant, common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { DMPMap } from '../Utils/DMPMap';
 import BuildProfile from '../../../../BuildProfile';
 import { access } from '@kit.ConnectivityKit';
+import { i18n } from '@kit.LocalizationKit';
+import { DMPContextUtils } from '../Utils/DMPContextUtils';
 
 export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
   private bundleInfo?: bundleManager.BundleInfo
-  private cachedResult?: DMPMap = undefined;
-  private cacheTimestamp = 0;
 
   getExportMethods(): string[] {
     return ['getSystemInfoSync', 'getEnv', 'getSystemInfoAsync', 'getAccountInfoSync', 'getSystemInfo',
-      'getDiminaCurStackPages', 'getSystemSetting', 'getWindowInfo'];
+      'getDiminaCurStackPages', 'getSystemSetting', 'getWindowInfo', 'getAppBaseInfo'];
   }
 
   getWindowInfo(data: DMPMap, callback: DMPBridgeCallback) {
@@ -48,7 +48,7 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
   getSystemSetting(data: DMPMap, callback: DMPBridgeCallback) {
     try {
       let state = access.getState();
-      console.error(`let state = access.getState(): ${state}`);
+      DMPLogger.e('', `let state = access.getState(): ${state}`);
 
       return new DMPMap({
         bluetoothEnabled: state === 0,
@@ -58,24 +58,27 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
       })
 
     } catch (err) {
-      console.error('errCode: ' + (err as BusinessError).code + ', errMessage: ' + (err as BusinessError).message);
+      DMPLogger.e('', 'errCode: ' + (err as BusinessError).code + ', errMessage: ' + (err as BusinessError).message);
       return new DMPMap();
     }
   }
 
-  getSystemInfoSync(data: DMPMap, callback: DMPBridgeCallback) {
-    const currentTime = Date.now();
-    // 检查缓存是否有效（10秒）
-    if (this.cachedResult && (currentTime - this.cacheTimestamp < 10000)) {
-      return this.cachedResult;
+  getAppBaseInfo(data: DMPMap, callback: DMPBridgeCallback) {
+    const info = this.systemInfo()
+    const keys = ['SDKVersion', 'enableDebug', 'host', 'language', 'version',
+      'theme', 'fontSizeScaleFactor', 'fontSizeSetting']
+    const result = new DMPMap()
+    for (const key of keys) {
+      const value: string | number | boolean | object | undefined = info.get(key)
+      if (value !== undefined) {
+        result.set(key, value)
+      }
     }
-    // 如果缓存无效，则重新获取系统信息
-    const result = this.systemInfo();
-    // 更新缓存
-    this.cachedResult = result;
-    this.cacheTimestamp = currentTime;
+    return result
+  }
 
-    return result;
+  getSystemInfoSync(data: DMPMap, callback: DMPBridgeCallback) {
+    return this.systemInfo();
   }
 
   getSystemInfoAsync(data: DMPMap, callback: DMPBridgeCallback) {
@@ -135,7 +138,35 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
 
     //星河sdk版本
     result.set('SDKVersion', BuildProfile.HAR_VERSION);
-    result.set('debugEnv', this.app.appConfig.isDebugMode ? 1 : 0)
+    result.set('enableDebug', DMPContextUtils.debugMode);
+    result.set('debugEnv', DMPContextUtils.debugMode ? 1 : 0)
+
+    // language: 微信客户端设置的语言
+    const locale = i18n.System.getSystemLocale()
+    result.set('language', locale)
+
+    // theme: 系统当前主题
+    try {
+      const uiContext = getContext(this) as common.UIAbilityContext
+      const colorMode = uiContext.config.colorMode
+      result.set('theme', colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK ? 'dark' : 'light')
+    } catch (e) {
+      result.set('theme', 'light')
+    }
+
+    // host: 宿主信息
+    result.set('host', { appId: this.app.appConfig.appId })
+
+    // font settings
+    try {
+      const uiCtx = getContext(this) as common.UIAbilityContext
+      const fontSizeScale: number = uiCtx.config.fontSizeScale ?? 1.0
+      result.set('fontSizeScaleFactor', fontSizeScale)
+      result.set('fontSizeSetting', Math.round(16 * fontSizeScale))
+    } catch (e) {
+      result.set('fontSizeScaleFactor', 1.0)
+      result.set('fontSizeSetting', 16)
+    }
     try {
 
       result.set('appid', this.app.bundleManager.getBundleInfo().appId)
@@ -163,4 +194,3 @@ class PageInfo {
   id?: number
   query?: Object
 }
-

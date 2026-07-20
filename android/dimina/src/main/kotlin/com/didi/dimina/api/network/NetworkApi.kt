@@ -248,9 +248,13 @@ class NetworkApi : BaseApiHandler() {
 
                         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(body.contentType()?.toString()) ?: "tmp"
                         val outFile = if (filePath.isNotEmpty()) {
-                            File(activity.cacheDir, filePath)
+                            PathUtils.appTempFile(activity, appId, filePath)
                         } else {
-                            File.createTempFile("download_${System.currentTimeMillis()}", ".$ext", activity.cacheDir)
+                            File.createTempFile(
+                                "download_${System.currentTimeMillis()}",
+                                ".$ext",
+                                PathUtils.appTempRoot(activity, appId),
+                            )
                         }
 
                         outFile.outputStream().use { output ->
@@ -307,7 +311,7 @@ class NetworkApi : BaseApiHandler() {
 
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        var file = File(PathUtils.pathToReal(activity, filePath))
+                        val file = File(PathUtils.pathToReal(activity, filePath, appId))
                         val fileRequestBody = file.asRequestBody("application/octet-stream".toMediaTypeOrNull())
                         val multipartBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
                             .addFormDataPart(name, file.name, fileRequestBody)

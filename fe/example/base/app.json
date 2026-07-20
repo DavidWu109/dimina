@@ -27,6 +27,7 @@
 		"pages/mark/index",
 		"pages/intersection-observer/index",
 		"pages/api/index",
+		"pages/file-system/index",
 		"pages/project-mixed/pages/home/index",
 		"pages/project-mixed/pages/detail/index",
 		"pages/package/index",
@@ -37,6 +38,7 @@
 		"pages/ext-bridge/index",
 		"pages/canvas/index",
 		"pages/video/index",
+		"pages/web-view/index",
 		"pages/web-gl/index"
 	],
 	"subPackages": [

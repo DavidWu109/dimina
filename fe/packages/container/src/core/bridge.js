@@ -26,6 +26,9 @@ export class Bridge {
 	 * @param {*} msg
 	 */
 	messagePublish(msg) {
+		if (this.destroyed) {
+			return
+		}
 		if (typeof msg === 'string') {
 			msg = JSON.parse(msg)
 		}
@@ -50,6 +53,9 @@ export class Bridge {
 	 * @param {*} msg
 	 */
 	messageInvoke(source, msg) {
+		if (this.destroyed) {
+			return
+		}
 		// 如果浏览器开启了移动设备模式，被误识别为 android/ios，需要手动转换字符串对象
 		if (typeof msg === 'string') {
 			msg = JSON.parse(msg)
@@ -58,6 +64,9 @@ export class Bridge {
 
 		// 按 id 过滤不同的 bridge 事件
 		if (body.bridgeId && body.bridgeId !== this.id) {
+			return
+		}
+		if (body.resourceLoadId && body.resourceLoadId !== this.resourceLoadId) {
 			return
 		}
 
@@ -77,7 +86,8 @@ export class Bridge {
 		if (target === 'service') {
 			if (type === 'serviceResourceLoaded') {
 				this.serviceResource = true
-				if (this.isResourceLoaded()) {
+				if (this.isResourceLoaded() && !this.resourceLoadedForwarded) {
+					this.resourceLoadedForwarded = true
 					transMsg.type = 'resourceLoaded'
 				}
 				else {
@@ -86,14 +96,23 @@ export class Bridge {
 			}
 			else if (type === 'renderResourceLoaded') {
 				this.renderResource = true
-				if (this.isResourceLoaded()) {
+				if (this.isResourceLoaded() && !this.resourceLoadedForwarded) {
+					this.resourceLoadedForwarded = true
 					transMsg.type = 'resourceLoaded'
 				}
 				else {
 					return
 				}
 			}
+			else if (type === 'renderResourceLoadFailed') {
+				this.renderResource = false
+				this.resourceLoadedForwarded = false
+				transMsg.type = 'resourceLoadFailed'
+			}
 			this.jscore.postMessage(transMsg)
+			if (transMsg.type === 'resourceLoaded') {
+				this.#flushPageVisibility()
+			}
 		}
 		else if (target === 'container') {
 			if (type === 'invokeAPI') {
@@ -107,12 +126,21 @@ export class Bridge {
 	/**
 	 * 启动资源加载
 	 */
-	start() {
+	start(options = {}) {
+		this.resourceLoadId = uuid()
+		if (Object.prototype.hasOwnProperty.call(options, 'visible')) {
+			this.desiredPageVisible = options.visible
+		}
+		else if (this.desiredPageVisible === null) {
+			this.desiredPageVisible = true
+		}
+
 		// 通知渲染线程加载资源
 		this.webview.postMessage({
 			type: 'loadResource',
 			body: {
 				bridgeId: this.id,
+				resourceLoadId: this.resourceLoadId,
 				appId: this.opts.appId,
 				pagePath: this.opts.pagePath,
 				root: this.opts.root,
@@ -125,8 +153,11 @@ export class Bridge {
 			type: 'loadResource',
 			body: {
 				bridgeId: this.id,
+				resourceLoadId: this.resourceLoadId,
 				appId: this.opts.appId,
 				pagePath: this.opts.pagePath,
+				scene: this.opts.scene,
+				query: this.opts.query,
 				root: this.opts.root,
 				baseUrl: import.meta.env.BASE_URL,
 				hostEnv: this.parent.getHostEnvSnapshot(),
@@ -145,8 +176,13 @@ export class Bridge {
 	}
 
 	resetStatus() {
+		this.destroyed = false
 		this.serviceResource = false
 		this.renderResource = false
+		this.resourceLoadedForwarded = false
+		this.resourceLoadId = null
+		this.desiredPageVisible = null
+		this.sentPageVisible = null
 	}
 
 	createWebview() {
@@ -195,38 +231,49 @@ export class Bridge {
 	}
 
 	pageShow() {
-		if (!this.isResourceLoaded()) {
-			return
-		}
-		this.jscore.postMessage({
-			type: 'pageShow',
-			body: {
-				bridgeId: this.id,
-			},
-		})
+		this.desiredPageVisible = true
+		this.#flushPageVisibility()
 	}
 
 	pageHide() {
-		if (!this.isResourceLoaded()) {
+		this.desiredPageVisible = false
+		this.#flushPageVisibility()
+	}
+
+	#flushPageVisibility() {
+		if (
+			!this.isResourceLoaded()
+			|| this.desiredPageVisible === null
+			|| this.sentPageVisible === this.desiredPageVisible
+		) {
 			return
 		}
+
 		this.jscore.postMessage({
-			type: 'pageHide',
+			type: this.desiredPageVisible ? 'pageShow' : 'pageHide',
 			body: {
 				bridgeId: this.id,
 			},
 		})
+		this.sentPageVisible = this.desiredPageVisible
 	}
 
 	destroy() {
-		if (!this.isResourceLoaded()) {
-			return
+		const wasResourceLoaded = this.isResourceLoaded()
+		this.destroyed = true
+		this.serviceResource = false
+		this.renderResource = false
+		this.resourceLoadedForwarded = false
+		this.resourceLoadId = null
+		this.desiredPageVisible = null
+		this.sentPageVisible = null
+		if (wasResourceLoaded) {
+			this.jscore.postMessage({
+				type: 'pageUnload',
+				body: {
+					bridgeId: this.id,
+				},
+			})
 		}
-		this.jscore.postMessage({
-			type: 'pageUnload',
-			body: {
-				bridgeId: this.id,
-			},
-		})
 	}
 }

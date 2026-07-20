@@ -12,7 +12,9 @@ import com.didi.dimina.api.base.AppEventApi
 import com.didi.dimina.api.base.BaseAPI
 import com.didi.dimina.api.base.SystemApi
 import com.didi.dimina.api.base.UpdateApi
+import com.didi.dimina.api.file.FileApi
 import com.didi.dimina.api.device.ClipboardApi
+import com.didi.dimina.api.device.BluetoothApi
 import com.didi.dimina.api.device.ContactApi
 import com.didi.dimina.api.device.KeyboardApi
 import com.didi.dimina.api.device.PhoneApi
@@ -20,6 +22,7 @@ import com.didi.dimina.api.device.ScanApi
 import com.didi.dimina.api.device.VibrateAPI
 import com.didi.dimina.api.media.ImageApi
 import com.didi.dimina.api.media.VideoApi
+import com.didi.dimina.api.network.LocalNetworkApi
 import com.didi.dimina.api.route.RouteApi
 import com.didi.dimina.api.storage.StorageApi
 import com.didi.dimina.api.ui.InteractionApi
@@ -48,6 +51,8 @@ class MiniApp private constructor() {
     private val tag = "MiniApp"
 
     private val apiRegistry = ApiRegistry()
+    private val bluetoothApi = BluetoothApi()
+    private val localNetworkApi = LocalNetworkApi()
 
     // Map to store JsCore instances for each MiniProgram
     private val jsCoreMap = mutableMapOf<String, JsCore>()
@@ -145,8 +150,14 @@ class MiniApp private constructor() {
                                 // Inject custom API namespaces before loading service.js
                                 val namespaces = Dimina.getInstance().getApiNamespaces()
                                 if (namespaces.isNotEmpty()) {
-                                    val json = namespaces.joinToString(",") { "\"$it\"" }
-                                    evaluate("globalThis.__diminaApiNamespaces = [$json]")
+                                    val json = org.json.JSONArray(namespaces).toString()
+                                    evaluate("globalThis.__diminaApiNamespaces = $json")
+                                }
+                                // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
+                                val registeredApis = getAvailableApis()
+                                if (registeredApis.isNotEmpty()) {
+                                    val apisJson = org.json.JSONArray(registeredApis).toString()
+                                    evaluate("globalThis.__diminaRegisteredApis = $apisJson")
                                 }
 
                                 evaluateFromFile(
@@ -185,6 +196,7 @@ class MiniApp private constructor() {
         com.didi.dimina.api.device.NetworkApi().registerWith(apiRegistry)
         VibrateAPI().registerWith(apiRegistry)
         ScanApi().registerWith(apiRegistry)
+        bluetoothApi.registerWith(apiRegistry)
 
         // media
         ImageApi().registerWith(apiRegistry)
@@ -204,9 +216,13 @@ class MiniApp private constructor() {
 
         // network
         com.didi.dimina.api.network.NetworkApi().registerWith(apiRegistry)
+        localNetworkApi.registerWith(apiRegistry)
 
         // storage
         StorageApi().registerWith(apiRegistry)
+
+        // file
+        FileApi().registerWith(apiRegistry)
     }
 
     /**
@@ -357,6 +373,8 @@ class MiniApp private constructor() {
     fun clear(appId: String) {
         // 清理第三方扩展的持续订阅
         apiRegistry.clearExtSubscriptions()
+        bluetoothApi.clearApp(appId)
+        localNetworkApi.clearApp(appId)
 
         // Clear JsCore for this appId
         jsCoreMap[appId]?.let { jsCore ->

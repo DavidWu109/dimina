@@ -111,7 +111,7 @@ public class DMPContainer {
         methodName: String, webViewId: Int, param: DMPBridgeParam, app: DMPApp
     ) -> DMPAPIResult {
         let moduleName = "DMPContainerBridgesModule"
-        print("Bridge call: module=\(moduleName), method=\(methodName)")
+        DMPLogger.debug("Bridge call: module=\(moduleName), method=\(methodName)")
         var callback: DMPBridgeCallback = { _, _ in }
 
         if param.isAsync {
@@ -199,7 +199,7 @@ public class DMPContainer {
             return DMPNoneResult()
         }
 
-        print("Bridge invoke error: 未找到方法: \(methodName)")
+        DMPLogger.debug("Bridge invoke error: 未找到方法: \(methodName)")
         return DMPSyncResult(["error": "未找到方法: \(methodName)"])
     }
 
@@ -225,7 +225,7 @@ public class DMPContainer {
                 DMPChannelProxy.containerToService(msg: message, app: app)
             },
             onFail: { error in
-                print("extOnBridge error (\(eventKey)): \(error.toJsonString())")
+                DMPLogger.debug("extOnBridge error (\(eventKey)): \(error.toJsonString())")
             }
         )
 
@@ -238,7 +238,7 @@ public class DMPContainer {
     /// 处理 extOffBridge：取消持续订阅
     private func handleExtOffBridge(eventKey: String) {
         extSubscriptions.removeValue(forKey: eventKey)?()
-        print("extOffBridge: cancelled subscription for \(eventKey)")
+        DMPLogger.debug("extOffBridge: cancelled subscription for \(eventKey)")
     }
 
     // MARK: - Private Methods

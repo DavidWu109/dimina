@@ -7,39 +7,80 @@
 
 import Foundation
 
-public class DMPIdProvider {
-    private static var _stackId: Int = 0
-    private static var _webviewId: Int = 0
+public final class DMPIdProvider {
+    private final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stackId: Int = 0
+        private var webViewId: Int = 0
+
+        func currentStackId() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return stackId
+        }
+
+        func increaseStackId() {
+            lock.lock()
+            stackId += 1
+            lock.unlock()
+        }
+
+        func generateStackId() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            stackId += 1
+            return stackId
+        }
+
+        func currentWebViewId() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return webViewId
+        }
+
+        func increaseWebViewId() {
+            lock.lock()
+            webViewId += 1
+            lock.unlock()
+        }
+
+        func generateWebViewId() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            webViewId += 1
+            return webViewId
+        }
+    }
+
+    private static let state = State()
     
     // 获取当前的栈ID
     public static var stackId: Int {
-        return _stackId
+        return state.currentStackId()
     }
     
     // 增加栈ID计数
     public static func increaseStackId() {
-        _stackId += 1
+        state.increaseStackId()
     }
     
     // 生成新的栈ID并返回
     public static func generateStackId() -> Int {
-        increaseStackId()
-        return _stackId
+        return state.generateStackId()
     }
     
     // 获取当前的WebView ID
     public static var webViewId: Int {
-        return _webviewId
+        return state.currentWebViewId()
     }
     
     // 生成新的WebView ID并返回
     public static func generateWebViewId() -> Int {
-        increaseWebViewId()
-        return _webviewId
+        return state.generateWebViewId()
     }
     
     // 增加WebView ID计数
     public static func increaseWebViewId() {
-        _webviewId += 1
+        state.increaseWebViewId()
     }
-} 
+}

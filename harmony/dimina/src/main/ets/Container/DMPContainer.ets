@@ -2,6 +2,7 @@ import { DMPBridges } from '../Bridges/DMPBridges';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPMap } from '../Utils/DMPMap';
+import { DMPHostEnvBuilder } from '../Utils/DMPHostEnvBuilder';
 
 export enum ResourceLoadType {
   Init = 0 << 0,
@@ -43,6 +44,7 @@ export class DMPContainer {
         appId: this.app.appConfig.appId,
         pagePath: pagePath,
         root: root,
+        hostEnv: DMPHostEnvBuilder.buildSnapshot(this.app),
       }
     })
 
@@ -62,6 +64,24 @@ export class DMPContainer {
     })
 
     DMPChannelProxyNext.ContainerToRender(msg, this.app, webViewId)
+  }
+
+  public updateHostEnv(): void {
+    let hasLoadedService: boolean = false
+    this.loadStatusMap.forEach((status: ResourceLoadType) => {
+      if ((status & ResourceLoadType.ServiceLoaded) !== 0) {
+        hasLoadedService = true
+      }
+    })
+    if (!hasLoadedService) {
+      return
+    }
+
+    const msg: DMPMap = new DMPMap({
+      type: 'hostEnvUpdate',
+      body: DMPHostEnvBuilder.buildSnapshot(this.app)
+    })
+    DMPChannelProxyNext.ContainerToService(msg, this.app.appIndex)
   }
 
   public callBridgeMethods(methodName: string, webViewId: number,

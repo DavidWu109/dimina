@@ -93,7 +93,7 @@ public class DMPPageController: UIViewController {
             self.webview.setQuery(query: query)
         }
         
-        print("🔧 DMPPageController: WebView (ID: \(webview.getWebViewId())) configuration completed, current page path: \(webview.getPagePath())")
+        DMPLogger.debug("🔧 DMPPageController: WebView (ID: \(webview.getWebViewId())) configuration completed, current page path: \(webview.getPagePath())")
         
         app?.render?.setupJSBridge(webViewId: webview.getWebViewId())
 
@@ -151,7 +151,7 @@ public class DMPPageController: UIViewController {
             view.bringSubviewToFront(customNavigationCapsuleView)
         }
         if let miniProgramMenuContainerView = miniProgramMenuContainerView {
-            view.bringSubviewToFront(miniProgramMenuContainerView)
+            miniProgramMenuContainerView.superview?.bringSubviewToFront(miniProgramMenuContainerView)
         }
         loadingView?.superview?.bringSubviewToFront(loadingView!)
     }
@@ -170,7 +170,7 @@ public class DMPPageController: UIViewController {
         hasStartedLoading = true
         showPageLoadingIfNeeded()
         webview.poolState = .loading
-        var enableVConsole = appConfig.isDebugMode
+        var enableVConsole = false
         #if DEBUG
         enableVConsole = true
         #endif
@@ -282,11 +282,19 @@ public class DMPPageController: UIViewController {
             useHostOverlay = false
         }
         let menuButtonRect = MenuAPI.getMenuButtonBoundingClientRect()
-        let capsuleWidth = CGFloat(menuButtonRect.getDouble(key: "width") ?? 87)
-        let capsuleHeight = CGFloat(menuButtonRect.getDouble(key: "height") ?? 32)
-        let screenWidth = UIScreen.main.bounds.width
-        let capsuleRight = CGFloat(menuButtonRect.getDouble(key: "right") ?? (screenWidth - 10))
-        let capsuleTrailing = screenWidth - capsuleRight
+        let capsuleWidth = CGFloat(
+            menuButtonRect.getDouble(key: "width") ?? Double(DMPMenuButtonLayout.capsuleSize.width)
+        )
+        let capsuleHeight = CGFloat(
+            menuButtonRect.getDouble(key: "height") ?? Double(DMPMenuButtonLayout.capsuleSize.height)
+        )
+        let windowWidth = DMPUIManager.shared.getDeviceDisplayInfo()["windowWidth"] as? CGFloat
+            ?? view.bounds.width
+        let capsuleRight = CGFloat(
+            menuButtonRect.getDouble(key: "right")
+                ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
+        )
+        let capsuleTrailing = max(windowWidth - capsuleRight, 0)
 
         view.addSubview(navigationBar)
         view.addSubview(capsuleView)
@@ -303,7 +311,7 @@ public class DMPPageController: UIViewController {
             contentView.leadingAnchor.constraint(equalTo: navigationBar.leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: navigationBar.trailingAnchor),
             contentView.bottomAnchor.constraint(equalTo: navigationBar.bottomAnchor),
-            contentView.heightAnchor.constraint(equalToConstant: 44),
+            contentView.heightAnchor.constraint(equalToConstant: DMPMenuButtonLayout.navigationBarContentHeight),
 
             backButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
             backButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -313,7 +321,10 @@ public class DMPPageController: UIViewController {
             titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -110),
+            titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: contentView.trailingAnchor,
+                constant: -DMPMenuButtonLayout.titleTrailingInset
+            ),
 
             capsuleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             capsuleView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -capsuleTrailing),
@@ -336,7 +347,7 @@ public class DMPPageController: UIViewController {
     private func makeCapsuleButton() -> UIView {
         let capsuleView = UIView()
         capsuleView.translatesAutoresizingMaskIntoConstraints = false
-        capsuleView.layer.cornerRadius = 16
+        capsuleView.layer.cornerRadius = DMPMenuButtonLayout.capsuleSize.height / 2
         capsuleView.layer.borderWidth = 0.5
         capsuleView.layer.shadowColor = UIColor.black.cgColor
         capsuleView.layer.shadowOpacity = 0.08
@@ -716,14 +727,19 @@ public class DMPPageController: UIViewController {
         topDivider.translatesAutoresizingMaskIntoConstraints = false
         topDivider.backgroundColor = UIColor(red: 242 / 255, green: 242 / 255, blue: 242 / 255, alpha: 1)
 
+        let iconColor = UIColor(red: 51 / 255, green: 51 / 255, blue: 51 / 255, alpha: 1)
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+
         let reenterItem = makeMiniProgramMenuItem(
             title: "重新进入\n小程序",
-            image: makeMenuReenterImage(),
+            image: UIImage(systemName: "arrow.clockwise", withConfiguration: symbolConfiguration)?
+                .withTintColor(iconColor, renderingMode: .alwaysOriginal) ?? UIImage(),
             action: #selector(miniProgramMenuReenterTapped)
         )
         let closeItem = makeMiniProgramMenuItem(
             title: "关闭小程序",
-            image: makeMenuCloseImage(),
+            image: UIImage(systemName: "xmark", withConfiguration: symbolConfiguration)?
+                .withTintColor(iconColor, renderingMode: .alwaysOriginal) ?? UIImage(),
             action: #selector(miniProgramMenuCloseTapped)
         )
 
@@ -744,7 +760,10 @@ public class DMPPageController: UIViewController {
         cancelButton.titleLabel?.font = .systemFont(ofSize: 18)
         cancelButton.addTarget(self, action: #selector(dismissMiniProgramMenu), for: .touchUpInside)
 
-        view.addSubview(overlay)
+        guard let presentationView = navigationController?.view ?? parent?.view ?? view else {
+            return
+        }
+        presentationView.addSubview(overlay)
         overlay.addSubview(sheetView)
         sheetView.addSubview(headerView)
         sheetView.addSubview(topDivider)
@@ -752,12 +771,12 @@ public class DMPPageController: UIViewController {
         sheetView.addSubview(bottomDivider)
         sheetView.addSubview(cancelButton)
 
-        let bottomInset = view.safeAreaInsets.bottom
+        let bottomInset = presentationView.safeAreaInsets.bottom
         NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: view.topAnchor),
-            overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            overlay.topAnchor.constraint(equalTo: presentationView.topAnchor),
+            overlay.leadingAnchor.constraint(equalTo: presentationView.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: presentationView.trailingAnchor),
+            overlay.bottomAnchor.constraint(equalTo: presentationView.bottomAnchor),
 
             sheetView.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
             sheetView.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
@@ -800,7 +819,7 @@ public class DMPPageController: UIViewController {
         ])
 
         miniProgramMenuContainerView = overlay
-        view.bringSubviewToFront(overlay)
+        presentationView.bringSubviewToFront(overlay)
     }
 
     private func makeMiniProgramMenuItem(title: String, image: UIImage, action: Selector) -> UIControl {
@@ -850,46 +869,6 @@ public class DMPPageController: UIViewController {
         ])
 
         return control
-    }
-
-    private func makeMenuReenterImage() -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24))
-        return renderer.image { _ in
-            let color = UIColor(red: 51 / 255, green: 51 / 255, blue: 51 / 255, alpha: 1)
-            let text = "↻" as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 24, weight: .medium),
-                .foregroundColor: color
-            ]
-            let textSize = text.size(withAttributes: attributes)
-            text.draw(
-                at: CGPoint(
-                    x: (24 - textSize.width) / 2,
-                    y: (24 - textSize.height) / 2
-                ),
-                withAttributes: attributes
-            )
-        }.withRenderingMode(.alwaysOriginal)
-    }
-
-    private func makeMenuCloseImage() -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24))
-        return renderer.image { _ in
-            let color = UIColor(red: 51 / 255, green: 51 / 255, blue: 51 / 255, alpha: 1)
-            let text = "×" as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 26, weight: .medium),
-                .foregroundColor: color
-            ]
-            let textSize = text.size(withAttributes: attributes)
-            text.draw(
-                at: CGPoint(
-                    x: (24 - textSize.width) / 2,
-                    y: (24 - textSize.height) / 2
-                ),
-                withAttributes: attributes
-            )
-        }.withRenderingMode(.alwaysOriginal)
     }
 
     @objc private func dismissMiniProgramMenu() {
@@ -1032,11 +1011,11 @@ public class DMPPageController: UIViewController {
     private func destroyWebView() {
         // Add state check to prevent duplicate destruction
         guard !isWebViewDestroyed else {
-            print("🟡 DMPPageController: WebView (ID: \(webview.getWebViewId())) has already been destroyed, skipping duplicate operation")
+            DMPLogger.debug("🟡 DMPPageController: WebView (ID: \(webview.getWebViewId())) has already been destroyed, skipping duplicate operation")
             return
         }
         
-        print("🗑️ DMPPageController: Destroy WebView (ID: \(webview.getWebViewId()))")
+        DMPLogger.debug("🗑️ DMPPageController: Destroy WebView (ID: \(webview.getWebViewId()))")
         isWebViewDestroyed = true
         
         // Notify page unload
@@ -1060,7 +1039,7 @@ public class DMPPageController: UIViewController {
     }
     
     deinit {
-        print("🗑️ DMPPageController: deinit (WebView ID: \(webview.getWebViewId()))")
+        DMPLogger.debug("🗑️ DMPPageController: deinit (WebView ID: \(webview.getWebViewId()))")
         webview.onLoadingStateChanged = nil
         // Ensure WebView is correctly released
         destroyWebView()

@@ -30,7 +30,7 @@ public enum DMPLogChannel: String {
 public enum DMPLog {
     public static let subsystem = "com.echo.dimina"
 
-    public enum Severity: Int, Comparable {
+    public enum Severity: Int, Comparable, Sendable {
         case debug = 0
         case info  = 1
         case warn  = 2
@@ -59,11 +59,68 @@ public enum DMPLog {
         }
     }
 
+    private final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _minimumLevel: Severity = .debug
+        private var _persistToFile = true
+        private var _logFileURL: URL = {
+            let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            return dir.appendingPathComponent("dimina.log")
+        }()
+
+        var minimumLevel: Severity {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _minimumLevel
+            }
+            set {
+                lock.lock()
+                _minimumLevel = newValue
+                lock.unlock()
+            }
+        }
+
+        var persistToFile: Bool {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _persistToFile
+            }
+            set {
+                lock.lock()
+                _persistToFile = newValue
+                lock.unlock()
+            }
+        }
+
+        var logFileURL: URL {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _logFileURL
+            }
+            set {
+                lock.lock()
+                _logFileURL = newValue
+                lock.unlock()
+            }
+        }
+    }
+
+    private static let state = State()
+
     /// 最低输出级别。默认 .debug 以便排查问题；线上可改成 .info。
-    public static var minimumLevel: Severity = .debug
+    public static var minimumLevel: Severity {
+        get { state.minimumLevel }
+        set { state.minimumLevel = newValue }
+    }
 
     /// 是否落盘到 Documents/dimina.log。
-    public static var persistToFile: Bool = true
+    public static var persistToFile: Bool {
+        get { state.persistToFile }
+        set { state.persistToFile = newValue }
+    }
 
     public static let app    = Channel(channel: .app)
     public static let render = Channel(channel: .render)
@@ -72,7 +129,7 @@ public enum DMPLog {
     public static let pool   = Channel(channel: .pool)
     public static let scheme = Channel(channel: .scheme)
 
-    public struct Channel {
+    public struct Channel: @unchecked Sendable {
         let channel: DMPLogChannel
         private let osLog: OSLog
 
@@ -109,28 +166,24 @@ public enum DMPLog {
 
     private static let fileQueue = DispatchQueue(label: "com.echo.dimina.log.file")
 
-    public static var logFileURL: URL = {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return dir.appendingPathComponent("dimina.log")
-    }()
-
-    private static let dateFormatter: DateFormatter = {
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        df.locale = Locale(identifier: "en_US_POSIX")
-        return df
-    }()
+    public static var logFileURL: URL {
+        get { state.logFileURL }
+        set { state.logFileURL = newValue }
+    }
 
     fileprivate static func persist(level: Severity,
                                     channel: DMPLogChannel,
                                     message: String,
                                     file: String,
                                     line: Int) {
-        let stamp = dateFormatter.string(from: Date())
-        let entry = "\(stamp) \(level.tag) [\(channel.rawValue)] \(message) (\(file):\(line))\n"
-        guard let data = entry.data(using: .utf8) else { return }
         let url = logFileURL
         fileQueue.async {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            let stamp = formatter.string(from: Date())
+            let entry = "\(stamp) \(level.tag) [\(channel.rawValue)] \(message) (\(file):\(line))\n"
+            guard let data = entry.data(using: .utf8) else { return }
             if let handle = try? FileHandle(forWritingTo: url) {
                 handle.seekToEndOfFile()
                 handle.write(data)

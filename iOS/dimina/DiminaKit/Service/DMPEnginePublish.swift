@@ -19,7 +19,7 @@ public class DMPEnginePublish {
     public static func registerPublish(to context: JSContext) {
         // 定义publish函数
         let publish: @convention(block) (Int, JSValue) -> Void = { webViewId, d in     
-            print("🔵 DiminaServiceBridge.publish调用: webViewId=\(webViewId), data=\(d)")
+            DMPLogger.debug("🔵 DiminaServiceBridge.publish调用: webViewId=\(webViewId), data=\(d)")
 
             if let dict = d.toDictionary() {
                 if let jsonString = DMPUtil.jsonEncode(from: dict) {
@@ -35,6 +35,6 @@ public class DMPEnginePublish {
         // 设置publish方法
         bridge?.setObject(publish, forKeyedSubscript: "publish" as NSString)
         
-        print("registerPublish 完成")
+        DMPLogger.debug("registerPublish 完成")
     }
 } 

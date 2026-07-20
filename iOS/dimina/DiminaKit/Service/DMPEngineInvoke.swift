@@ -38,6 +38,6 @@ public class DMPEngineInvoke {
         
         bridge?.setObject(invoke, forKeyedSubscript: "invoke" as NSString)
         
-        print("registerInvoke 完成")
+        DMPLogger.debug("registerInvoke 完成")
     }
 }

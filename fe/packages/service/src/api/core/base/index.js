@@ -1,16 +1,13 @@
 import { invokeAPI } from '@/api/common'
+import { fileSystemManagerAPINames } from '@/api/core/file'
+import { updateManagerAPINames } from '@/api/core/base/update/api-names'
 
 /**
- * 文件系统
- * https://developers.weixin.qq.com/miniprogram/dev/framework/ability/file-system.html
- *
  * 环境变量
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/wx.env.html
  */
-export function env() {
-	return {
-		USER_DATA_PATH: 'difile://',
-	}
+export const env = {
+	USER_DATA_PATH: 'difile://usr',
 }
 
 // JS 层内置支持的API列表
@@ -18,12 +15,22 @@ const builtInAPIs = new Set([
 	'nextTick',
 	'getUpdateManager',
 	'UpdateManager',
-	'UpdateManager.applyUpdate',
-	'UpdateManager.onCheckForUpdate',
-	'UpdateManager.onUpdateFailed',
-	'UpdateManager.onUpdateReady',
-	'getPerformance'
+	...updateManagerAPINames.map(name => `UpdateManager.${name}`),
+	'getPerformance',
+	'getFileSystemManager',
+	'FileSystemManager',
+	...fileSystemManagerAPINames.map(name => `FileSystemManager.${name}`),
 ])
+
+// Socket factories live in the service layer, while their actual capability is
+// provided by the native object methods. Probe a representative native method
+// so canIUse stays platform-aware (notably, it remains false on Web).
+const nativeBackedFactorySchemas = {
+	createUDPSocket: 'UDPSocket.bind',
+	UDPSocket: 'UDPSocket.bind',
+	createTCPSocket: 'TCPSocket.connect',
+	TCPSocket: 'TCPSocket.connect',
+}
 	
 /**
  * 判断小程序的API，回调，参数，组件等是否在当前版本可用。
@@ -34,7 +41,10 @@ export function canIUse(schema) {
 		return true
 	}
 	try {
-		return invokeAPI('canIUse', schema)
+		const nativeSchema = Object.hasOwn(nativeBackedFactorySchemas, schema)
+			? nativeBackedFactorySchemas[schema]
+			: schema
+		return invokeAPI('canIUse', nativeSchema) === true
 	} catch (error) {
 		console.warn(`[canIUse] check ${schema} error:`, error)
 		return false

@@ -3,14 +3,15 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const process = require('node:process')
-const archiver = require('archiver')
 
 // Define paths
 const publicPath = path.resolve(__dirname, '../packages/container/public')
 const sharedJsappPath = path.resolve(__dirname, '../../shared/jsapp')
 
 // Helper function to create zip file
-function createZip(sourceDir, outputPath) {
+async function createZip(sourceDir, outputPath) {
+	const { default: archiver } = await import('archiver')
+
 	return new Promise((resolve, reject) => {
 		const output = fs.createWriteStream(outputPath)
 		const archive = archiver('zip', {

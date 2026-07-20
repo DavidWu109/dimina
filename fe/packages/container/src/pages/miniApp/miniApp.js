@@ -42,6 +42,7 @@ export class MiniApp {
 		this.apiRegistry = {}
 		// 维护第三方扩展的持续订阅，key: `${module}_${event}`，value: unsubscribe 函数
 		this._extSubscriptions = new Map();
+		this._windowResizeHandlers = new Set()
 		this.tabBarConfig = null            // app.tabBar 配置
 		this.tabBarPaths = []               // 与 list 等长，pagePath 数组（已规范化、无前导 /）
 		this.tabBarBridges = new Map()      // pagePath -> Bridge：懒加载的持久 tab 池
@@ -220,10 +221,26 @@ export class MiniApp {
 		else if (typeof this[name] === 'function') {
 			this[name](params)
 		}
-		else {
-			// 未命中已知方法，转发给第三方扩展路由处理
+		else if (params?.module !== undefined || params?.evtId !== undefined) {
+			// 扩展调用必须携带明确的协议标记，不能仅凭 success 判断，
+			// 否则未实现的普通回调 API 会被误判为 extOnBridge。
 			this._handleExtCall(name, params)
 		}
+		else {
+			this._handleUnsupportedApi(name, params)
+		}
+	}
+
+	_handleUnsupportedApi(name, params = {}) {
+		const { onFail, onComplete } = this._createApiCallbacks(params)
+		const error = { errMsg: `${name}:fail api is not supported` }
+		if (onFail) {
+			onFail(error)
+		}
+		else {
+			console.warn(`[container] ${error.errMsg}`)
+		}
+		onComplete?.()
 	}
 
 	viewDidLoad() {
@@ -238,6 +255,7 @@ export class MiniApp {
 	async initApp() {
 		// 1. 等待逻辑线程初始化
 		await this.jscore.init()
+		this._bindThemeChange()
 
 		// 2. 读取配置文件，同时保证 LaunchScreen 最少展示一个略长于 present 的时长
 		const root = 'main'
@@ -289,10 +307,11 @@ export class MiniApp {
 			this._updateTabBarSelection(normalizedPath)
 		}
 
-		entryPageBridge.start()
+		const isRestoringPageStack = this.appInfo.restoreStack?.length > 1
+		entryPageBridge.start({ visible: !isRestoringPageStack })
 
 		// 7. 若携带额外的恢复栈（刷新后恢复场景），静默重建后续页面
-		if (this.appInfo.restoreStack && this.appInfo.restoreStack.length > 1) {
+		if (isRestoringPageStack) {
 			await this.restorePageStack(this.appInfo.restoreStack.slice(1))
 		}
 
@@ -348,7 +367,7 @@ export class MiniApp {
 				bridge.webview.el.classList.add('dimina-native-view--slide-out')
 			}
 
-			bridge.start()
+			bridge.start({ visible: isTop })
 		}
 
 		if (pages.length > 0) {
@@ -399,7 +418,7 @@ export class MiniApp {
 
 	onPresentIn() {
 		const currentBridge = this.bridgeList[this.bridgeList.length - 1]
-		// 首次异步创建时， bridge 不存在，会在[Service]自行调用 invokeInitLifecycle
+		// bridge 会缓存目标可见状态，并在双线程资源就绪后按序触发页面生命周期。
 		currentBridge?.appShow()
 		currentBridge?.pageShow()
 	}
@@ -427,7 +446,7 @@ export class MiniApp {
 		const logo = this.el.querySelector('.dimina-mini-app__logo-img-url')
 
 		this.updateActionColorStyle('black')
-		name.innerHTML = this.appInfo.name
+		name.textContent = this.appInfo.name
 		logo.src = this.appInfo.logo
 		launchScreen.style.display = 'block'
 	}
@@ -495,75 +514,87 @@ export class MiniApp {
 
 		// 防抖处理
 		if (!this.webviewAnimaEnd) {
+			onFail?.({ errMsg: 'navigateTo:fail busy' })
+			onComplete?.()
 			return
 		}
 		this.webviewAnimaEnd = false
 
-		const pageConfig = this.appConfig.modules[pagePath]
-		const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
-		// 更新状态栏颜色模式
-		this.updateTargetPageColorStyle(mergeConfig)
+		try {
+			const pageConfig = this.appConfig.modules[pagePath]
+			const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
+			// 更新状态栏颜色模式
+			this.updateTargetPageColorStyle(mergeConfig)
 
-		// 创建新的入口页面的 bridge
-		const bridge = await this.createBridge({
-			pagePath,
-			query,
-			scene: this.appInfo.scene,
-			jscore: this.jscore,
-			isRoot: false,
-			root: pageConfig?.root || 'main',
-			appId: this.appInfo.appId,
-			pages: this.appConfig.app.pages,
-			configInfo: mergeConfig,
-		})
+			// 创建新的入口页面的 bridge
+			const bridge = await this.createBridge({
+				pagePath,
+				query,
+				scene: this.appInfo.scene,
+				jscore: this.jscore,
+				isRoot: false,
+				root: pageConfig?.root || 'main',
+				appId: this.appInfo.appId,
+				pages: this.appConfig.app.pages,
+				configInfo: mergeConfig,
+			})
 
-		// 获取前一个bridge
-		const preBridge = this.bridgeList[this.bridgeList.length - 1]
-		const preWebview = preBridge.webview
+			// 获取前一个bridge
+			const preBridge = this.bridgeList[this.bridgeList.length - 1]
+			const preWebview = preBridge.webview
 
-		this.bridgeList.push(bridge)
+			this.bridgeList.push(bridge)
 
-		// 触发新页面的初始化逻辑
-		bridge.start()
-		this._syncHash()
+			// 触发新页面的初始化逻辑
+			bridge.start()
+			this._syncHash()
 
-		// 上一个页面推出
-		preWebview.el.classList.remove('dimina-native-view--instage')
-		preWebview.el.classList.add('dimina-native-view--slide-out')
-		preWebview.el.classList.add('dimina-native-view--linear-anima')
-		preBridge?.pageHide()
+			// 上一个页面推出
+			preWebview.el.classList.remove('dimina-native-view--instage')
+			preWebview.el.classList.add('dimina-native-view--slide-out')
+			preWebview.el.classList.add('dimina-native-view--linear-anima')
+			preBridge?.pageHide()
 
-		this._setTabBarVisible(false)
+			this._setTabBarVisible(false)
 
-		// 新页面推入
-		bridge.webview.el.style.zIndex = this.bridgeList.length + 1
-		bridge.webview.el.classList.add('dimina-native-view--enter-anima')
-		bridge.webview.el.classList.add('dimina-native-view--instage')
-		await waitTransitionEnd(bridge.webview.el, 'transform')
+			// 新页面推入
+			bridge.webview.el.style.zIndex = this.bridgeList.length + 1
+			bridge.webview.el.classList.add('dimina-native-view--enter-anima')
+			bridge.webview.el.classList.add('dimina-native-view--instage')
+			await waitTransitionEnd(bridge.webview.el, 'transform')
 
-		// 页面进入后移出动画相关class
-		this.webviewAnimaEnd = true
-		preWebview.el.classList.remove('dimina-native-view--linear-anima')
-		bridge.webview.el.classList.remove('dimina-native-view--before-enter')
-		bridge.webview.el.classList.remove('dimina-native-view--enter-anima')
-		bridge.webview.el.classList.remove('dimina-native-view--instage')
+			// 页面进入后移出动画相关class
+			preWebview.el.classList.remove('dimina-native-view--linear-anima')
+			bridge.webview.el.classList.remove('dimina-native-view--before-enter')
+			bridge.webview.el.classList.remove('dimina-native-view--enter-anima')
+			bridge.webview.el.classList.remove('dimina-native-view--instage')
 
-		onSuccess?.({ errMsg: 'navigateTo:ok' })
-		onComplete?.()
+			onSuccess?.({ errMsg: 'navigateTo:ok' })
+		}
+		catch (error) {
+			onFail?.({ errMsg: `navigateTo:fail ${error.message}` })
+		}
+		finally {
+			this.webviewAnimaEnd = true
+			onComplete?.()
+		}
 	}
 
 	reLaunch(opts) {
+		const { url, success, fail, complete } = opts
+		const onSuccess = this.createCallbackFunction(success)
+		const onFail = this.createCallbackFunction(fail)
+		const onComplete = this.createCallbackFunction(complete)
+
 		// 防抖处理
 		if (!this.webviewAnimaEnd) {
+			onFail?.({ errMsg: 'reLaunch:fail busy' })
+			onComplete?.()
 			return
 		}
 		this.webviewAnimaEnd = false
 
-		const { url, success, fail, complete } = opts
 		const { query, pagePath } = queryPath(url)
-		const onSuccess = this.createCallbackFunction(success)
-		const onFail = this.createCallbackFunction(fail)
-		const onComplete = this.createCallbackFunction(complete)
 
 		try {
 			// 检查页面路径是否存在
@@ -664,95 +695,118 @@ export class MiniApp {
 
 		// 防抖处理
 		if (!this.webviewAnimaEnd) {
+			onFail?.({ errMsg: 'redirectTo:fail busy' })
+			onComplete?.()
 			return
 		}
 		this.webviewAnimaEnd = false
 
-		// 获取当前 bridge
-		const curBridge = this.bridgeList[this.bridgeList.length - 1]
-		const prevPath = this._normalizePagePath(curBridge.opts.pagePath)
-		const pageConfig = this.appConfig.modules[pagePath]
-		const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
+		try {
+			// 获取当前 bridge
+			const curBridge = this.bridgeList[this.bridgeList.length - 1]
+			const prevPath = this._normalizePagePath(curBridge.opts.pagePath)
+			const pageConfig = this.appConfig.modules[pagePath]
+			const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
 
-		this.updateTargetPageColorStyle(mergeConfig)
-		// 更新 bridge
-		curBridge.destroy()
-		curBridge.opts = {
-			...curBridge.opts,
-			pagePath,
-			query,
-			configInfo: mergeConfig,
-		}
-		curBridge.resetStatus()
-		curBridge.start()
-		this._syncHash()
-
-		// redirectTo 的目标按规范不能是 tab 页：若被替换的是当前 tab 页，需从 pool 中移除并隐藏 TabBar
-		if (this.tabBarBridges.get(prevPath) === curBridge) {
-			this.tabBarBridges.delete(prevPath)
-			if (this.currentTabPath === prevPath) {
-				this.currentTabPath = null
+			this.updateTargetPageColorStyle(mergeConfig)
+			// 更新 bridge
+			curBridge.destroy()
+			curBridge.opts = {
+				...curBridge.opts,
+				pagePath,
+				query,
+				configInfo: mergeConfig,
 			}
-		}
-		this._setBridgeTabBarInset(curBridge, false)
-		this._setTabBarVisible(false)
+			curBridge.resetStatus()
+			curBridge.start()
+			this._syncHash()
 
-		this.webviewAnimaEnd = true
-		onSuccess?.({ errMsg: 'redirectTo:ok' })
-		onComplete?.()
+			// redirectTo 的目标按规范不能是 tab 页：若被替换的是当前 tab 页，需从 pool 中移除并隐藏 TabBar
+			if (this.tabBarBridges.get(prevPath) === curBridge) {
+				this.tabBarBridges.delete(prevPath)
+				if (this.currentTabPath === prevPath) {
+					this.currentTabPath = null
+				}
+			}
+			this._setBridgeTabBarInset(curBridge, false)
+			this._setTabBarVisible(false)
+
+			onSuccess?.({ errMsg: 'redirectTo:ok' })
+		}
+		catch (error) {
+			onFail?.({ errMsg: `redirectTo:fail ${error.message}` })
+		}
+		finally {
+			this.webviewAnimaEnd = true
+			onComplete?.()
+		}
 	}
 
-	async navigateBack() {
+	async navigateBack(opts = {}) {
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
 		if (this.bridgeList.length < 2) {
+			onFail?.({ errMsg: 'navigateBack:fail cannot navigate back at first page' })
+			onComplete?.()
 			return
 		}
 
 		if (!this.webviewAnimaEnd) {
+			onFail?.({ errMsg: 'navigateBack:fail busy' })
+			onComplete?.()
 			return
 		}
 
 		this.webviewAnimaEnd = false
 
-		const currentBridge = this.bridgeList.pop()
-		const preBridge = this.bridgeList[this.bridgeList.length - 1]
+		try {
+			const currentBridge = this.bridgeList.pop()
+			const preBridge = this.bridgeList[this.bridgeList.length - 1]
 
-		const pageConfig = this.appConfig.modules[preBridge.opts.pagePath]
-		const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
+			const pageConfig = this.appConfig.modules[preBridge.opts.pagePath]
+			const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
 
-		// 更新状态栏颜色模式
-		this.updateTargetPageColorStyle(mergeConfig)
+			// 更新状态栏颜色模式
+			this.updateTargetPageColorStyle(mergeConfig)
 
-		// 当前页面推出
-		currentBridge.webview.el.classList.add('dimina-native-view--before-enter')
-		currentBridge.webview.el.classList.add('dimina-native-view--enter-anima')
+			// 当前页面推出
+			currentBridge.webview.el.classList.add('dimina-native-view--before-enter')
+			currentBridge.webview.el.classList.add('dimina-native-view--enter-anima')
 
-		// 触发当前页面的生命周期函数
-		currentBridge?.destroy()
+			// 触发当前页面的生命周期函数
+			currentBridge.destroy()
 
-		// 上一个页面推入
-		preBridge.webview.el.classList.remove('dimina-native-view--slide-out')
-		preBridge.webview.el.classList.add('dimina-native-view--instage')
-		preBridge.webview.el.classList.add('dimina-native-view--enter-anima')
+			// 上一个页面推入
+			preBridge.webview.el.classList.remove('dimina-native-view--slide-out')
+			preBridge.webview.el.classList.add('dimina-native-view--instage')
+			preBridge.webview.el.classList.add('dimina-native-view--enter-anima')
 
-		// 触发上一个页面的生命周期函数
-		preBridge?.pageShow()
-		this._syncHash()
+			// 触发上一个页面的生命周期函数
+			preBridge.pageShow()
+			this._syncHash()
 
-		// 后退到 tab 页：恢复 TabBar 可见 + 选中态
-		if (this._isTabBarPage(preBridge.opts.pagePath)) {
-			const path = this._normalizePagePath(preBridge.opts.pagePath)
-			this.currentTabPath = path
-			this._setTabBarVisible(true)
-			this._updateTabBarSelection(path)
+			// 后退到 tab 页：恢复 TabBar 可见 + 选中态
+			if (this._isTabBarPage(preBridge.opts.pagePath)) {
+				const path = this._normalizePagePath(preBridge.opts.pagePath)
+				this.currentTabPath = path
+				this._setTabBarVisible(true)
+				this._updateTabBarSelection(path)
+			}
+
+			await waitTransitionEnd(preBridge.webview.el, 'transform')
+
+			// 页面进入后移出动画相关class
+			preBridge.webview.el.classList.remove('dimina-native-view--enter-anima')
+			preBridge.webview.el.classList.remove('dimina-native-view--instage')
+			currentBridge.webview.el.parentNode.removeChild(currentBridge.webview.el)
+			onSuccess?.({ errMsg: 'navigateBack:ok' })
 		}
-
-		await waitTransitionEnd(preBridge.webview.el, 'transform')
-		this.webviewAnimaEnd = true
-
-		// 页面进入后移出动画相关class
-		preBridge.webview.el.classList.remove('dimina-native-view--enter-anima')
-		preBridge.webview.el.classList.remove('dimina-native-view--instage')
-		currentBridge.webview.el.parentNode.removeChild(currentBridge.webview.el)
+		catch (error) {
+			onFail?.({ errMsg: `navigateBack:fail ${error.message}` })
+		}
+		finally {
+			this.webviewAnimaEnd = true
+			onComplete?.()
+		}
 	}
 
 	/**
@@ -907,6 +961,17 @@ export class MiniApp {
 		this.tabBarBadges = tabBar.list.map(() => '')
 		this.tabBarRedDots = tabBar.list.map(() => false)
 		this.tabBarApiVisible = true
+		this.customTabBar = tabBar.custom === true
+		if (this.customTabBar) {
+			this.tabBarEl = this.el.querySelector('.dimina-mini-app__tabbar')
+			if (this.tabBarEl) {
+				this.tabBarEl.textContent = ''
+				this.tabBarEl.style.display = 'none'
+			}
+			this.tabBarHeight = 0
+			this.el.style.setProperty('--dimina-tabbar-height', '0px')
+			return
+		}
 		this._renderTabBar()
 	}
 
@@ -1028,6 +1093,7 @@ export class MiniApp {
 	 * 到 tab 页时缺少底部留白。
 	 */
 	_getTabBarHeight() {
+		if (this.customTabBar) return 0
 		if (!this.tabBarEl) return this.tabBarHeight
 
 		let height = this.tabBarEl.getBoundingClientRect().height
@@ -1063,7 +1129,7 @@ export class MiniApp {
 		const webviewEl = bridge?.webview?.el
 		if (!webviewEl) return
 
-		if (!enabled) {
+		if (!enabled || this.customTabBar) {
 			webviewEl.style.removeProperty('bottom')
 			return
 		}
@@ -1119,6 +1185,11 @@ export class MiniApp {
 	 */
 	_setTabBarVisible(visible) {
 		if (!this.tabBarEl) return
+		if (this.customTabBar) {
+			this.tabBarEl.style.display = 'none'
+			this._syncTabBarHeightVar()
+			return
+		}
 		const topBridge = this.bridgeList[this.bridgeList.length - 1]
 		const topPath = this._normalizePagePath(topBridge?.opts?.pagePath)
 		const isTopTabPage = !!topPath && topPath === this.currentTabPath && this._isTabBarPage(topPath)
@@ -1374,16 +1445,22 @@ export class MiniApp {
 		onComplete?.()
 	}
 
-	navigateToMiniProgram(opts) {
-		const { appId, path } = opts
-		AppManager.openApp(
-			{
-				appId,
-				path,
-				scene: 1037, // 打开小程序
-			},
-			this.parent,
-		)
+	async navigateToMiniProgram(opts) {
+		const { appId, path, scene = 1037 } = opts
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		try {
+			await AppManager.openApp(
+				{ appId, path, scene },
+				this.parent,
+			)
+			onSuccess?.({ errMsg: 'navigateToMiniProgram:ok' })
+		}
+		catch (error) {
+			onFail?.({ errMsg: `navigateToMiniProgram:fail ${error.message}` })
+		}
+		finally {
+			onComplete?.()
+		}
 	}
 
 	bindMoreEvent() {
@@ -1421,6 +1498,18 @@ export class MiniApp {
 			unsubscribe?.()
 		}
 		this._extSubscriptions.clear()
+		for (const handler of this._windowResizeHandlers) {
+			globalThis.removeEventListener?.('resize', handler)
+		}
+		this._windowResizeHandlers.clear()
+		if (this._themeMediaQuery?.removeEventListener) {
+			this._themeMediaQuery.removeEventListener('change', this._themeChangeHandler)
+		}
+		else {
+			this._themeMediaQuery?.removeListener?.(this._themeChangeHandler)
+		}
+		this._themeMediaQuery = null
+		this._themeChangeHandler = null
 
 		// 释放 TabBar 高度观察器
 		this._tabBarResizeObserver?.disconnect()
@@ -1544,44 +1633,77 @@ export class MiniApp {
 		const onComplete = this.createCallbackFunction(complete)
 
 		onSuccess?.({
-			statusBarHeight: bar.height,
-			brand: 'devtools',
-			mode: 'default',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			deviceOrientation: 'portrait',
-			SDKVersion: '3.0.0',
-			language: 'zh_CN',
-			wifiEnabled: true,
-			safeArea: {
-				width: wb.width,
-				height: wb.height,
-				top: wb.top,
-				bottom: wb.bottom,
-				left: wb.left,
-				right: wb.right,
-			},
+            statusBarHeight: bar.height,
+            brand: "devtools",
+            mode: "default",
+            model: "web",
+            platform: "devtools",
+            system: "web",
+            deviceOrientation: "portrait",
+            SDKVersion: "3.0.0",
+            language: "zh_CN",
+            wifiEnabled: true,
+            safeArea: {
+                width: wb.width,
+                height: wb.height,
+                top: wb.top,
+                bottom: wb.bottom,
+                left: wb.left,
+                right: wb.right,
+            },
+        });
+		onComplete?.()
+	}
+
+	getSystemInfo(opts = {}) {
+		const { onSuccess, onComplete } = this._createApiCallbacks(opts)
+		onSuccess?.({
+			...this.getSystemInfoSync(),
+			errMsg: 'getSystemInfo:ok',
 		})
 		onComplete?.()
 	}
 
+	onWindowResize(opts = {}) {
+		const onResize = this.createCallbackFunction(opts.success)
+		if (!onResize || !globalThis.addEventListener) {
+			return
+		}
+
+		const handler = () => {
+			const { windowWidth, windowHeight, deviceOrientation = 'portrait' } = this.getSystemInfoSync()
+			onResize({
+				size: { windowWidth, windowHeight },
+				deviceOrientation,
+			})
+		}
+		this._windowResizeHandlers ??= new Set()
+		this._windowResizeHandlers.add(handler)
+		globalThis.addEventListener('resize', handler)
+	}
+
 	getMenuButtonBoundingClientRect() {
 		const rect = this.el.querySelector('.dimina-mini-app-navigation__actions').getBoundingClientRect()
+		const appRect = this.el.getBoundingClientRect()
 		const statusBar = this.parent.parent.root.querySelector('.iphone__status-bar')
 		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
 		// 对齐到小程序导航栏的几何模型：
 		// navbar 总高约等于 statusBarHeight + 40px，胶囊在内容区内垂直居中
 		const normalizedTop = statusBarHeight + 4
 		const normalizedBottom = normalizedTop + rect.height
+		// getBoundingClientRect() 返回的是宿主页面坐标，而小程序 API 约定返回
+		// 当前小程序视口坐标。容器不在页面原点时必须扣除自身偏移，否则
+		// navbar 会用宿主坐标计算中心区域，把标题推到屏幕边缘。
+		const normalizedLeft = rect.left - appRect.left
+		const normalizedRight = rect.right - appRect.left
 		return {
 			top: normalizedTop,
-			right: rect.right,
+			right: normalizedRight,
 			bottom: normalizedBottom,
-			left: rect.left,
+			left: normalizedLeft,
 			width: rect.width,
 			height: rect.height,
-			x: rect.x,
+			x: normalizedLeft,
 			y: normalizedTop,
 		}
 	}
@@ -1590,6 +1712,31 @@ export class MiniApp {
 		return {
 			menuRect: this.getMenuButtonBoundingClientRect(),
 			systemInfo: this.getSystemInfoSync(),
+		}
+	}
+
+	_bindThemeChange() {
+		const mediaQuery = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
+		if (!mediaQuery) {
+			return
+		}
+		this._themeMediaQuery = mediaQuery
+		this._themeChangeHandler = event => {
+			this.jscore.postMessage({
+				type: 'hostEnvUpdate',
+				body: {
+					systemInfo: {
+						...this.getSystemInfoSync(),
+						theme: event.matches ? 'dark' : 'light',
+					},
+				},
+			})
+		}
+		if (mediaQuery.addEventListener) {
+			mediaQuery.addEventListener('change', this._themeChangeHandler)
+		}
+		else {
+			mediaQuery.addListener?.(this._themeChangeHandler)
 		}
 	}
 
@@ -1602,26 +1749,33 @@ export class MiniApp {
 		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
 
 		return {
-			brand: 'devtools',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
-			pixelRatio: globalThis.devicePixelRatio || 1,
-			screenWidth: width,
-			screenHeight: height,
-			windowWidth: width,
-			windowHeight: height,
-			statusBarHeight,
-			safeArea: {
-				left: 0,
-				right: width,
-				top: statusBarHeight,
-				bottom: height,
-				width,
-				height: Math.max(height - statusBarHeight, 0),
-			},
-		}
+            brand: "devtools",
+            model: "web",
+            platform: "devtools",
+            system: "web",
+            SDKVersion: "3.0.0", // vant组件库 判断  canIUseModel version 需要大于 2.9.3
+            pixelRatio: globalThis.devicePixelRatio || 1,
+            screenWidth: width,
+            screenHeight: height,
+            windowWidth: width,
+            windowHeight: height,
+            statusBarHeight,
+            safeArea: {
+                left: 0,
+                right: width,
+                top: statusBarHeight,
+                bottom: height,
+                width,
+                height: Math.max(height - statusBarHeight, 0),
+            },
+            enableDebug: false,
+            host: { appId: "" },
+            language: navigator.language || "zh_CN",
+            version: "",
+            theme: globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? "dark" : "light",
+            fontSizeScaleFactor: 1,
+            fontSizeSetting: 16,
+        };
 	}
 
 	showToast(opts = {}) {
@@ -2222,11 +2376,11 @@ export class MiniApp {
 	 * service 侧 extBridge/extOnBridge/extOffBridge 的 invokeAPI 名称规则：
 	 *   extBridge   → name = event,              params = { module, data, success, fail, complete }
 	 *   extOnBridge → name = `${module}_${event}`, params = { success(callBack), evtId }
-	 *   extOffBridge→ name = `${module}_${event}`, params = { success(undefined) }（无 evtId，keep=false）
+	 *   extOffBridge→ name = `${module}_${event}`, params = { success(undefined), evtId }
 	 *
 	 * 区分方式：
 	 *   - extBridge：params 中携带 module 字段
-	 *   - extOnBridge vs extOffBridge：evtId 存在且 success 有值 → on；否则 → off
+	 *   - extOnBridge vs extOffBridge：success 有值 → on；否则 → off
 	 */
 	_handleExtCall(name, params = {}) {
 		if (params.module !== undefined) {
@@ -2297,7 +2451,7 @@ export class MiniApp {
 
 		const { module, event } = this._parseExtEventKey(eventKey)
 		if (!module) {
-			console.error(`[container] extOnBridge:fail no registered module matched for key "${eventKey}"`)
+			console.warn(`[container] extOnBridge:fail no registered module matched for key "${eventKey}"`)
 			return
 		}
 

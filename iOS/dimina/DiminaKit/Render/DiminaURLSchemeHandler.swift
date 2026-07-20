@@ -28,33 +28,16 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
             return
         }
-
-        var path = ""
-        var pathKind = ""
-
-        if url.path.contains("pageFrame") || url.path.contains("vconsole") {
-            path = DMPSandboxManager.sdkMainBundlePath() + url.path
-            pathKind = "sdk"
-        } else {
-            // URL path 格式: /<appId>/main/app.css 或 /main/app.css
-            let urlPath = url.path
-            let pathComponents = urlPath.split(separator: "/", maxSplits: 2)
-
-            var resolvedAppId = appId
-            var resourcePath = urlPath
-
-            // URL 第一段如果在 appVersionMap 中，就是 appId，剥离它
-            if pathComponents.count >= 2,
-               let firstComponent = pathComponents.first.map(String.init),
-               DiminaURLSchemeHandler.appVersionMap[firstComponent] != nil {
-                resolvedAppId = firstComponent
-                resourcePath = "/" + pathComponents.dropFirst().joined(separator: "/")
-            }
-
-            let resolvedVersion = DiminaURLSchemeHandler.appVersionMap[resolvedAppId] ?? versionCode
-            path = DMPSandboxManager.appBundlePath(resolvedAppId, versionCode: resolvedVersion) + resourcePath
-            pathKind = "app(\(resolvedAppId)@v\(resolvedVersion ?? -1))"
+        guard let resolved = resolvePath(for: url) else {
+            urlSchemeTask.didFailWithError(NSError(
+                domain: "DiminaErrorDomain",
+                code: 403,
+                userInfo: [NSLocalizedDescriptionKey: "Resource path is outside the application sandbox"]
+            ))
+            return
         }
+        let path = resolved.path
+        let pathKind = resolved.kind
 
         guard FileManager.default.fileExists(atPath: path) else {
             let parent = (path as NSString).deletingLastPathComponent
@@ -83,6 +66,51 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         DMPLog.scheme.debug("stop \(urlSchemeTask.request.url?.absoluteString ?? "nil")")
+    }
+
+    private func resolvePath(for url: URL) -> (path: String, kind: String)? {
+        guard url.scheme?.lowercased() == "dimina",
+              url.user == nil,
+              url.password == nil,
+              url.host == nil || url.host?.isEmpty == true else {
+            return nil
+        }
+        let path = url.path
+
+        if path == "/pageFrame.html" {
+            guard let resolvedPath = DMPFileUtil.confinedPath(
+                rootPath: DMPSandboxManager.sdkMainBundlePath(),
+                relativePath: "pageFrame.html"
+            ) else { return nil }
+            return (resolvedPath, "sdk")
+        }
+
+        if path.hasPrefix("/assets/") {
+            guard let resolvedPath = DMPFileUtil.confinedPath(
+                rootPath: DMPSandboxManager.sdkMainBundlePath(),
+                relativePath: path
+            ) else { return nil }
+            return (resolvedPath, "sdk")
+        }
+
+        let pathComponents = path.split(separator: "/", omittingEmptySubsequences: true)
+        var resolvedAppId = appId
+        var appRelativePath = path
+        if let firstComponent = pathComponents.first.map(String.init),
+           DiminaURLSchemeHandler.appVersionMap[firstComponent] != nil {
+            resolvedAppId = firstComponent
+            appRelativePath = pathComponents.dropFirst().joined(separator: "/")
+        }
+        let resolvedVersion = DiminaURLSchemeHandler.appVersionMap[resolvedAppId] ?? versionCode
+        let rootPath = DMPSandboxManager.appBundlePath(
+            resolvedAppId,
+            versionCode: resolvedVersion
+        )
+        guard let resolvedPath = DMPFileUtil.confinedPath(
+            rootPath: rootPath,
+            relativePath: appRelativePath
+        ) else { return nil }
+        return (resolvedPath, "app(\(resolvedAppId)@v\(resolvedVersion ?? -1))")
     }
     
     // Get MIME type based on file path

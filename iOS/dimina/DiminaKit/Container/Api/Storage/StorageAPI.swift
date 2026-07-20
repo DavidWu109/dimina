@@ -16,7 +16,6 @@ public class StorageAPI: DMPContainerApi {
 
     override public init(app: DMPApp? = nil) {
         super.init(app: app)
-        DMPStorage.shared.initialize()
 
         register("setStorageSync", handler: setStorageSync)
         register("getStorageSync", handler: getStorageSync)
@@ -49,7 +48,7 @@ public class StorageAPI: DMPContainerApi {
             encrypt = map.get("encrypt") as? Bool ?? false
         }
 
-        let result = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
+        let result = DMPStorage.storage(for: env.appId).set(key: key, value: data, encrypted: encrypt)
         return DMPSyncResult(result)
     }
 
@@ -62,7 +61,7 @@ public class StorageAPI: DMPContainerApi {
         } else {
             return DMPNoneResult()
         }
-        let value = DMPStorage.shared.get(key: key, encrypted: false)
+        let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: false)
         return DMPSyncResult(DMPBridgeParam(value: value))
     }
 
@@ -77,12 +76,12 @@ public class StorageAPI: DMPContainerApi {
         }
         let encrypt = param.getMap().get("encrypt") as? Bool ?? false
 
-        DMPStorage.shared.remove(key: key, encrypted: encrypt)
+        DMPStorage.storage(for: env.appId).remove(key: key, encrypted: encrypt)
         return DMPSyncResult(true)
     }
 
     private func clearStorageSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        DMPStorage.shared.clearAllStorage()
+        DMPStorage.storage(for: env.appId).clearAllStorage()
         return DMPSyncResult(true)
     }
 
@@ -103,11 +102,8 @@ public class StorageAPI: DMPContainerApi {
             return DMPAsyncResult()
         }
 
-        NSLog("🗄️ [setStorage] key=%@, dataType=%@", key, String(describing: type(of: data)))
-
         DispatchQueue.global().async {
-            let success = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
-            NSLog("🗄️ [setStorage] key=%@, result=%d", key, success ? 1 : 0)
+            let success = DMPStorage.storage(for: env.appId).set(key: key, value: data, encrypted: encrypt)
 
             DispatchQueue.main.async {
                 if success {
@@ -134,8 +130,7 @@ public class StorageAPI: DMPContainerApi {
         let encrypt = param.get("encrypt") as? Bool ?? false
 
         DispatchQueue.global().async {
-            let value = DMPStorage.shared.get(key: key, encrypted: encrypt)
-            NSLog("🗄️ [getStorage] key=%@, found=%d", key, value != nil ? 1 : 0)
+            let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: encrypt)
 
             DispatchQueue.main.async {
                 if let value = value {
@@ -162,7 +157,7 @@ public class StorageAPI: DMPContainerApi {
         let encrypt = param.get("encrypt") as? Bool ?? false
 
         DispatchQueue.global().async {
-            DMPStorage.shared.remove(key: key, encrypted: encrypt)
+            DMPStorage.storage(for: env.appId).remove(key: key, encrypted: encrypt)
 
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
@@ -176,7 +171,7 @@ public class StorageAPI: DMPContainerApi {
 
     private func clearStorage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.global().async {
-            DMPStorage.shared.clearAllStorage()
+            DMPStorage.storage(for: env.appId).clearAllStorage()
 
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
@@ -189,7 +184,7 @@ public class StorageAPI: DMPContainerApi {
     }
 
     private func getStorageInfoSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let storageInfo = DMPStorage.shared.getAllStorageInfo()
+        let storageInfo = DMPStorage.storage(for: env.appId).getAllStorageInfo()
 
         let result = DMPMap()
         result.set("keys", storageInfo.keys)
@@ -201,7 +196,7 @@ public class StorageAPI: DMPContainerApi {
 
     private func getStorageInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
         DispatchQueue.global().async {
-            let storageInfo = DMPStorage.shared.getAllStorageInfo()
+            let storageInfo = DMPStorage.storage(for: env.appId).getAllStorageInfo()
 
             DispatchQueue.main.async {
                 let resultMap = DMPMap()

@@ -44,7 +44,7 @@ final class DMPRemoteUpdateManager {
             try installPackage(manifest: manifest, zipPath: zipPath)
             await app.notifyUpdateStatus(event: "updateready")
         } catch {
-            print("Remote update failed: \(error)")
+            DMPLogger.debug("Remote update failed: \(error)")
             await app.notifyUpdateStatus(event: updateAnnounced ? "updatefail" : "noupdate")
         }
     }

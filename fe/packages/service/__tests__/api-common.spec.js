@@ -88,4 +88,20 @@ describe('invokeAPI promise-like behavior', () => {
 		expect(result).toBe('invoke-result')
 		expect(params).toBeUndefined()
 	})
+
+	it('preserves the event id that identifies extension subscriptions', async () => {
+		const { bridge, invokeAPI } = await loadCommonApi()
+
+		invokeAPI('ExampleModule_onChange', {
+			evtId: 'ExampleModule_onChange',
+			keep: true,
+			success: vi.fn(),
+		})
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params).toEqual({
+			evtId: 'ExampleModule_onChange',
+			success: 'ExampleModule_onChange',
+		})
+	})
 })

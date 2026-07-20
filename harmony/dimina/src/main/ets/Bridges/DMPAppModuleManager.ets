@@ -34,6 +34,9 @@ import { DMPApp } from '../DApp/DMPApp';
 import { DMPContainerBridgesModuleBluetooth } from './DMPContainerBridgesModule+Bluetooth';
 import { DMPContainerBridgesModuleVideo } from './DMPContainerBridgesModule+Video'
 import { DMPContainerBridgesModuleTabBar } from './DMPContainerBridgesModule+TabBar';
+import { DMPContainerBridgesModuleFile } from './DMPContainerBridgesModule+File';
+import { DMPContainerBridgesModuleCanvas } from './DMPContainerBridgesModule+Canvas';
+import { DMPContainerBridgesModuleLocalNetwork } from './Network/DMPContainerBridgesModule+LocalNetwork';
 
 
 export class DMPAppModuleManager extends DMPModuleManager {
@@ -44,6 +47,8 @@ export class DMPAppModuleManager extends DMPModuleManager {
   private extModules: Map<string, DMPExtModuleHandler> = new Map();
   /** 懒创建的 Ext Bridge 模块实例 */
   private extBridgeModule: DMPContainerBridgesModuleExt | null = null;
+  private bluetoothModule: DMPContainerBridgesModuleBluetooth;
+  private localNetworkModule: DMPContainerBridgesModuleLocalNetwork;
 
   registerExtModule(moduleName: string, handler: DMPExtModuleHandler): void {
     this.extModules.set(moduleName, handler);
@@ -66,7 +71,8 @@ export class DMPAppModuleManager extends DMPModuleManager {
 
     this.registerModule(new DMPContainerBridgesModuleMisc(app))
     this.registerModule(new DMPContainerBridgesModuleActionSheet(app))
-    this.registerModule(new DMPContainerBridgesModuleBluetooth(app))
+    this.bluetoothModule = new DMPContainerBridgesModuleBluetooth(app)
+    this.registerModule(this.bluetoothModule)
     this.registerModule(new DMPContainerBridgesModuleComponentAPI(app))
     this.registerModule(new DMPContainerBridgesModulePopUp(app))
     this.registerModule(new DMPContainerBridgesModuleDom(app))
@@ -80,7 +86,10 @@ export class DMPAppModuleManager extends DMPModuleManager {
     this.registerModule(new DMPContainerBridgesModuleShare(app))
     this.registerModule(new DMPContainerBridgesModuleCamera(app))
     this.registerModule(new DMPContainerBridgesModuleNetwork(app))
+    this.localNetworkModule = new DMPContainerBridgesModuleLocalNetwork(app)
+    this.registerModule(this.localNetworkModule)
     this.registerModule(new DMPContainerBridgesModuleStorage(app))
+    this.registerModule(new DMPContainerBridgesModuleFile(app))
 
     this.registerModule(new DMPContainerBridgesModuleMenu(app))
     this.registerModule(new DMPContainerBridgesModuleImage(app))
@@ -99,11 +108,15 @@ export class DMPAppModuleManager extends DMPModuleManager {
     this.registerModule(new DMPContainerBridgesModuleNavigationBar(app))
     this.registerModule(new DMPContainerBridgesModuleNavigateToMiniProgram(app))
     this.registerModule(new DMPContainerBridgesModuleTabBar(app))
+    this.registerModule(new DMPContainerBridgesModuleCanvas(app))
+  }
+
+  dispose(): void {
+    this.bluetoothModule.dispose();
+    this.localNetworkModule.dispose();
+    this.extBridgeModule?.cancelAllSubscriptions();
   }
 }
-
-
-
 
 
 

@@ -12,8 +12,8 @@ export class WebView {
 		this.el.innerHTML = tpl
 		this.setInitialStyle()
 		this.iframe = this.el.querySelector('.dimina-native-webview__window')
-		// Web container enables vConsole before the render runtime starts.
-		this.iframe.src = `${import.meta.env.BASE_URL}pageFrame.html?vconsole=1`
+		const vConsoleQuery = import.meta.env.DEV ? '?vconsole=1' : ''
+		this.iframe.src = `${import.meta.env.BASE_URL}pageFrame.html${vConsoleQuery}`
 		this.iframe.name = this.id
 		this.event = mitt()
 		this.bindBackEvent()

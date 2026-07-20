@@ -1,20 +1,22 @@
 package com.didi.dimina.ui.container
 
+import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.LinearEasing
@@ -46,6 +48,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -65,12 +69,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -79,10 +86,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.toColorInt
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.didi.dimina.Dimina
+import com.didi.dimina.api.device.ScanCodeOptions
 import com.didi.dimina.bean.AppConfig
 import com.didi.dimina.bean.BridgeOptions
 import com.didi.dimina.bean.MergedPageConfig
@@ -91,6 +100,7 @@ import com.didi.dimina.bean.PathInfo
 import com.didi.dimina.bean.TabBarConfig
 import com.didi.dimina.bean.TabBarItem
 import com.didi.dimina.common.LogUtils
+import com.didi.dimina.common.MenuButtonLayout
 import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
@@ -105,6 +115,7 @@ import com.didi.dimina.ui.view.DiminaWebView
 import com.didi.dimina.ui.view.MediaPickerRoot
 import com.didi.dimina.ui.view.MediaType
 import com.didi.dimina.ui.view.NativeComponentHost
+import com.didi.dimina.ui.view.ScanCodeLauncher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -172,11 +183,35 @@ class DiminaActivity : ComponentActivity() {
 
     // Contact picker for handling contact-related operations
     private lateinit var contactPicker: ContactPicker
+    private lateinit var scanCodeLauncher: ScanCodeLauncher
 
     private var imageChooseCallback: ((List<String>) -> Unit)? = null
+    private val bluetoothPermissionCallbacks = mutableListOf<(Boolean) -> Unit>()
+    private var bluetoothPermissionRequestInFlight = false
+    private val bluetoothPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result.values.all { it }
+        bluetoothPermissionRequestInFlight = false
+        val callbacks = bluetoothPermissionCallbacks.toList()
+        bluetoothPermissionCallbacks.clear()
+        callbacks.forEach { it(granted) }
+    }
+    private val nearbyWifiPermissionCallbacks = mutableListOf<(Boolean) -> Unit>()
+    private var nearbyWifiPermissionRequestInFlight = false
+    private val nearbyWifiPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result.values.all { it }
+        nearbyWifiPermissionRequestInFlight = false
+        val callbacks = nearbyWifiPermissionCallbacks.toList()
+        nearbyWifiPermissionCallbacks.clear()
+        callbacks.forEach { it(granted) }
+    }
     
     private var adjustBottom = 0.0
     private var updateCheckStarted = false
+    private var preserveMiniAppOnDestroy = false
 
     // 屏幕高度
     private var screenHeight = 0
@@ -252,6 +287,42 @@ class DiminaActivity : ComponentActivity() {
         contactPicker.handleChooseContact(callback)
     }
 
+    fun handleScanCode(options: ScanCodeOptions, callback: (Boolean, JSONObject) -> Unit) {
+        scanCodeLauncher.launch(options, callback)
+    }
+
+    fun handleBluetoothPermission(callback: (Boolean) -> Unit) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            callback(true)
+            return
+        }
+        bluetoothPermissionCallbacks.add(callback)
+        if (bluetoothPermissionRequestInFlight) return
+        bluetoothPermissionRequestInFlight = true
+        bluetoothPermissionLauncher.launch(permissions)
+    }
+
+    fun handleNearbyWifiPermission(callback: (Boolean) -> Unit) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES, Manifest.permission.ACCESS_FINE_LOCATION)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            callback(true)
+            return
+        }
+        nearbyWifiPermissionCallbacks.add(callback)
+        if (nearbyWifiPermissionRequestInFlight) return
+        nearbyWifiPermissionRequestInFlight = true
+        nearbyWifiPermissionLauncher.launch(permissions)
+    }
+
     private fun openSystemGallery(type: MediaType, maxCount: Int) {
         // Set the maximum number of images that can be selected
         maxImageCount.intValue = maxCount
@@ -285,11 +356,6 @@ class DiminaActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        if (intent.getBooleanExtra(CLOSE_MINI_PROGRAM_KEY, false)) {
-            finish()
-            return
-        }
-        
         // 获取屏幕高度
         screenHeight = resources.displayMetrics.heightPixels
 
@@ -319,6 +385,7 @@ class DiminaActivity : ComponentActivity() {
         try {
             miniApp = MiniApp.getInstance()
             miniProgram = program
+            activityRegistry.register(miniProgram.appId, this)
             LogUtils.d(
                 tag,
                 "Successfully obtained MiniApp instance and JsCore for appId: ${miniProgram.appId}"
@@ -331,6 +398,7 @@ class DiminaActivity : ComponentActivity() {
 
         // Initialize the ContactPicker
         contactPicker = ContactPicker(this)
+        scanCodeLauncher = ScanCodeLauncher(this)
 
         setContent {
             DiminaAndroidTheme {
@@ -364,11 +432,6 @@ class DiminaActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-
-        if (intent.getBooleanExtra(CLOSE_MINI_PROGRAM_KEY, false)) {
-            finish()
-            return
-        }
 
         if (intent.getBooleanExtra(APPLY_UPDATE_RESTART_KEY, false)) {
             getMiniProgramFromIntent(intent)?.let { program ->
@@ -1031,7 +1094,7 @@ class DiminaActivity : ComponentActivity() {
                 } else {
                     webViewReadyCallbacks.add(action)
                 }
-                Log.w(tag, "Tab WebView not initialized yet, adding to callback queue")
+                LogUtils.w(tag, "Tab WebView not initialized yet, adding to callback queue")
                 false
             }
         }
@@ -1039,7 +1102,7 @@ class DiminaActivity : ComponentActivity() {
             action(it)
             true
         } ?: run {
-            Log.w(tag, "WebView not initialized yet, adding to callback queue")
+            LogUtils.w(tag, "WebView not initialized yet, adding to callback queue")
             webViewReadyCallbacks.add(action)
             false
         }
@@ -1235,6 +1298,10 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::miniProgram.isInitialized) {
+            activityRegistry.unregister(miniProgram.appId, this)
+        }
+
         val bridgesToDestroy = buildList {
             bridge?.let { add(it) }
             tabPageStates.values.forEach { state ->
@@ -1247,10 +1314,10 @@ class DiminaActivity : ComponentActivity() {
         }
         clearAllNativeComponents()
 
-        if (miniApp.isBridgeListEmpty(miniProgram.appId)) {
+        if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty(miniProgram.appId)) {
             // Clear resources for this specific MiniProgram
             miniApp.clear(miniProgram.appId)
-        } else if (miniApp.isBridgeListEmpty()) {
+        } else if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty()) {
             miniApp.clearAll()
         }
         super.onDestroy()
@@ -1302,7 +1369,7 @@ class DiminaActivity : ComponentActivity() {
             onSelected = { uris ->
                 // Convert URIs to file paths
                 val paths =
-                    uris.mapNotNull { uri -> PathUtils.uriToTempFile(this@DiminaActivity, uri) }
+                    uris.mapNotNull { uri -> PathUtils.uriToTempFile(this@DiminaActivity, uri, miniProgram.appId) }
                 // Invoke the callback with the selected image paths
                 imageChooseCallback?.invoke(paths)
                 // Reset the callback and hide the picker
@@ -1348,7 +1415,7 @@ class DiminaActivity : ComponentActivity() {
                                 }
                             },
                             actions = {
-                                Spacer(modifier = Modifier.width(97.dp))
+                                Spacer(modifier = Modifier.width(MenuButtonLayout.TRAILING_OCCUPIED_WIDTH_DP.dp))
                             }
                         )
                     }
@@ -1376,6 +1443,7 @@ class DiminaActivity : ComponentActivity() {
                                     DiminaWebView(
                                         onInitReady = { webView -> onTabWebViewReady(tabIndex, webView) },
                                         onPageCompleted = { onTabPageReady(tabIndex) },
+                                        appId = miniProgram.appId,
                                         onNativeOverlayReady = { overlay ->
                                             onTabNativeOverlayReady(tabIndex, overlay)
                                         },
@@ -1392,6 +1460,7 @@ class DiminaActivity : ComponentActivity() {
                             DiminaWebView(
                                 onInitReady = { webView -> onWebViewReady(webView) },
                                 onPageCompleted = { onPageReady() },
+                                appId = miniProgram.appId,
                                 onNativeOverlayReady = { overlay -> onNativeOverlayReady(overlay) },
                             )
                         }
@@ -1436,7 +1505,19 @@ class DiminaActivity : ComponentActivity() {
             }
 
             if (!isLoading.value) {
-                val menuRect = remember { Utils.getMenuButtonBoundingClientRect(this@DiminaActivity) }
+                val configuration = LocalConfiguration.current
+                val (windowInfo, menuRect) = remember(
+                    configuration.screenWidthDp,
+                    configuration.screenHeightDp,
+                    configuration.orientation,
+                    statusBarHeight,
+                ) {
+                    val currentWindowInfo = Utils.getMiniProgramSystemInfo(this@DiminaActivity)
+                    currentWindowInfo to MenuButtonLayout.calculate(
+                        windowWidth = currentWindowInfo.getInt("windowWidth"),
+                        statusBarHeight = currentWindowInfo.getInt("statusBarHeight"),
+                    )
+                }
                 MiniProgramCapsuleButton(
                     onMoreClick = {
                         showMiniProgramMenu.value = true
@@ -1445,9 +1526,8 @@ class DiminaActivity : ComponentActivity() {
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(
-                            top = menuRect.optInt("top", Utils.getStatusBarHeight(this@DiminaActivity)).dp,
-                            end = (Utils.getMiniProgramSystemInfo(this@DiminaActivity)
-                                .optInt("windowWidth") - menuRect.optInt("right", 0)).dp
+                            top = menuRect.top.dp,
+                            end = (windowInfo.getInt("windowWidth") - menuRect.right).dp
                         )
                         .zIndex(10f)
                 )
@@ -1456,22 +1536,20 @@ class DiminaActivity : ComponentActivity() {
     }
 
     private fun closeMiniProgram() {
-        val closeIntent = Intent(this, DiminaActivity::class.java).apply {
-            putExtra(MINI_PROGRAM_KEY, miniProgram.copy(root = true))
-            putExtra(CLOSE_MINI_PROGRAM_KEY, true)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.finish()
         }
-        startActivity(closeIntent)
-        finish()
     }
 
     private fun reenterMiniProgram() {
         val entryPagePath = getDefaultEntryPagePath() ?: miniProgram.path
-        DiminaActivity.launch(
-            this,
-            miniProgram.copy(root = true, path = entryPagePath),
-            Intent.FLAG_ACTIVITY_CLEAR_TOP
-        )
+        val reentryProgram = miniProgram.copy(root = true, path = entryPagePath)
+
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.preserveMiniAppOnDestroy = true
+            activity.finish()
+        }
+        DiminaActivity.launch(this, reentryProgram)
     }
 
     fun applyUpdate() {
@@ -1555,18 +1633,18 @@ class DiminaActivity : ComponentActivity() {
                 ) {
                     MiniProgramMenuItem(
                         label = "重新进入\n小程序",
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "重新进入小程序",
                         onClick = onReenterClick,
                         modifier = Modifier.width(78.dp)
-                    ) {
-                        ReenterMenuIcon()
-                    }
+                    )
                     MiniProgramMenuItem(
                         label = "关闭小程序",
+                        icon = Icons.Filled.Close,
+                        contentDescription = "关闭小程序",
                         onClick = onCloseClick,
                         modifier = Modifier.width(78.dp)
-                    ) {
-                        CloseMenuIcon()
-                    }
+                    )
                 }
 
                 HorizontalDivider(color = Color(0xFFEDEDED), thickness = 1.dp)
@@ -1587,9 +1665,10 @@ class DiminaActivity : ComponentActivity() {
     @Composable
     private fun MiniProgramMenuItem(
         label: String,
+        icon: ImageVector,
+        contentDescription: String,
         onClick: () -> Unit,
-        modifier: Modifier = Modifier,
-        icon: @Composable () -> Unit
+        modifier: Modifier = Modifier
     ) {
         Column(
             modifier = modifier.clickable(onClick = onClick),
@@ -1602,7 +1681,12 @@ class DiminaActivity : ComponentActivity() {
                     .background(Color(0xFFF8F8F8)),
                 contentAlignment = Alignment.Center
             ) {
-                icon()
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = Color(0xFF333333),
+                    modifier = Modifier.size(24.dp)
+                )
             }
             Text(
                 text = label,
@@ -1616,30 +1700,6 @@ class DiminaActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ReenterMenuIcon() {
-        Text(
-            text = "↻",
-            fontSize = 24.sp,
-            lineHeight = 24.sp,
-            color = Color(0xFF333333),
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-    }
-
-    @Composable
-    private fun CloseMenuIcon() {
-        Text(
-            text = "×",
-            fontSize = 24.sp,
-            lineHeight = 24.sp,
-            color = Color(0xFF333333),
-            fontWeight = FontWeight.Normal,
-            textAlign = TextAlign.Center
-        )
-    }
-
-    @Composable
     private fun MiniProgramCapsuleButton(
         onMoreClick: () -> Unit,
         onCloseClick: () -> Unit,
@@ -1648,11 +1708,14 @@ class DiminaActivity : ComponentActivity() {
         val foreground = Color(0xFF1F1F1F)
         val borderColor = Color(0xFFE5E5E5)
         val separatorColor = Color(0xFFE9E9E9)
-        val shape = RoundedCornerShape(16.dp)
+        val shape = RoundedCornerShape((MenuButtonLayout.HEIGHT_DP / 2).dp)
 
         Box(
             modifier = modifier
-                .size(width = 87.dp, height = 32.dp)
+                .size(
+                    width = MenuButtonLayout.WIDTH_DP.dp,
+                    height = MenuButtonLayout.HEIGHT_DP.dp,
+                )
                 .shadow(1.dp, shape, clip = false)
                 .clip(shape)
                 .background(Color.White)
@@ -1664,7 +1727,10 @@ class DiminaActivity : ComponentActivity() {
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 43.dp, height = 32.dp)
+                        .size(
+                            width = ((MenuButtonLayout.WIDTH_DP - 1) / 2).dp,
+                            height = MenuButtonLayout.HEIGHT_DP.dp,
+                        )
                         .clickable(onClick = onMoreClick),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1688,7 +1754,10 @@ class DiminaActivity : ComponentActivity() {
 
                 Box(
                     modifier = Modifier
-                        .size(width = 43.dp, height = 32.dp)
+                        .size(
+                            width = ((MenuButtonLayout.WIDTH_DP - 1) / 2).dp,
+                            height = MenuButtonLayout.HEIGHT_DP.dp,
+                        )
                         .clickable(onClick = onCloseClick),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1867,8 +1936,8 @@ class DiminaActivity : ComponentActivity() {
 
     companion object {
         const val MINI_PROGRAM_KEY = "mini_program"
-        private const val CLOSE_MINI_PROGRAM_KEY = "close_mini_program"
         private const val APPLY_UPDATE_RESTART_KEY = "apply_update_restart"
+        private val activityRegistry = MiniProgramActivityRegistry<DiminaActivity>()
 
         fun launch(
             context: Context,

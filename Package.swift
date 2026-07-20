@@ -31,6 +31,9 @@ let package = Package(
                 "diminaApp.swift",
                 "Assets.xcassets",
                 "Preview Content",
+                "DiminaKit/Utils/AppConfigManager.swift",
+                "DiminaKit/Utils/DiminaEngineManager.swift",
+                "DiminaKit/Utils/MiniProgramInfo+Extension.swift",
             ],
             sources: [
                 "DiminaKit"
@@ -41,5 +44,6 @@ let package = Package(
                 .copy("Resources/JsSdk.bundle"),
             ]
         )
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )

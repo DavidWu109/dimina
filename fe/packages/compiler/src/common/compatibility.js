@@ -1,8 +1,13 @@
 import { Parser } from 'htmlparser2'
+import { isHTMLTag } from '@vue/shared'
+import { isMainThread } from 'node:worker_threads'
+import { getViewScriptTags } from '../env.js'
 import { supportedBuiltinComponents, supportedWxApis } from './compatibility-reference.js'
+import { miniProgramBuiltinTags, tagWhiteList } from './utils.js'
 
 let cachedReference = null
 const warnedItems = new Set()
+const pendingWarnings = []
 
 function loadReference() {
 	if (cachedReference) {
@@ -125,7 +130,21 @@ function warnUnsupportedWxApi(apiName, filePath, line) {
 
 function warnUnsupportedComponent(tagName, filePath, line) {
 	const { supportedBuiltinComponents } = loadReference()
-	if (!tagName || supportedBuiltinComponents.has(tagName)) {
+	// 视图脚本标签（wxs、dds 及自定义标签）不是组件，需动态豁免。
+	// 兼容性清单仅包含 wxs，因此还需在此放行 dds 和自定义标签，避免误报。
+	if (
+		!tagName
+		|| supportedBuiltinComponents.has(tagName)
+		|| tagWhiteList.includes(tagName)
+		|| getViewScriptTags().includes(tagName)
+	) {
+		return
+	}
+
+	// glass-easel resolves registered mini-program components first, then falls
+	// back to a native node for undeclared tags. Standard HTML follows that native
+	// path, but known mini-program built-ins still need an unsupported warning.
+	if (!miniProgramBuiltinTags.has(tagName) && isHTMLTag(tagName)) {
 		return
 	}
 
@@ -146,7 +165,12 @@ function checkTemplateCompatibility(content, filePath, components = {}) {
 				warnUnsupportedComponent(tagName, filePath, line)
 			},
 			onerror(error) {
-				console.warn('[compat]', `Failed to parse template for compatibility diagnostics: ${filePath}`, error.message)
+				warnOnce(
+					'parse',
+					filePath,
+					error.message,
+					`[compat] Failed to parse template for compatibility diagnostics: ${filePath} ${error.message}`,
+				)
 			},
 		},
 		{
@@ -188,7 +212,16 @@ function warnOnce(type, name, location, message) {
 		return
 	}
 	warnedItems.add(key)
-	console.warn(message)
+	if (isMainThread) {
+		console.warn(message)
+	}
+	else {
+		pendingWarnings.push(message)
+	}
+}
+
+function takeCompatibilityWarnings() {
+	return pendingWarnings.splice(0)
 }
 
 export {
@@ -196,5 +229,6 @@ export {
 	getWxMemberName,
 	loadReference,
 	parseApiReference,
+	takeCompatibilityWarnings,
 	warnUnsupportedWxApi,
 }

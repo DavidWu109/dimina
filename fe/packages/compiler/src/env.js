@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { parseSync } from 'oxc-parser'
+import { walk } from 'oxc-walker'
 import { resolveMiniProgramPath, toMiniProgramModuleId } from './common/path-utils.js'
 import { isObjectEmpty, uuid } from './common/utils.js'
 import { NpmResolver } from './common/npm-resolver.js'
@@ -10,29 +12,148 @@ let pathInfo = {}
 let configInfo = {}
 let npmResolver = null
 
+// 小程序自定义文件类型：可扩展的文件扩展名和内联标签。
+// 始终保留内置 wx/dd 类型；调用方通过 build() 或 storeInfo() 的 options.fileTypes 追加自定义项。
+const DEFAULT_TEMPLATE_EXTS = ['.wxml', '.ddml']
+const DEFAULT_STYLE_EXTS = ['.wxss', '.ddss', '.less', '.scss', '.sass']
+const DEFAULT_VIEW_SCRIPT_EXTS = ['.wxs']
+const DEFAULT_VIEW_SCRIPT_TAGS = ['wxs', 'dds']
+// 微信自定义 tabBar 的规范入口只在编译适配层解析；运行时通过产物元数据识别。
+const CUSTOM_TAB_BAR_COMPONENT_PATH = '/custom-tab-bar/index'
+const STYLE_ISOLATION_VALUES = new Set([
+	'isolated',
+	'apply-shared',
+	'shared',
+])
+
+// 保留扩展名：所有内置类型 + 逻辑(.js/.ts) + 配置(.json)。自定义项不得占用，
+// 否则会跨角色串编（如 template:['js'] 会把页面逻辑文件当成模板解析）。
+const RESERVED_EXTS = new Set([
+	...DEFAULT_TEMPLATE_EXTS,
+	...DEFAULT_STYLE_EXTS,
+	...DEFAULT_VIEW_SCRIPT_EXTS,
+	'.js',
+	'.ts',
+	'.json',
+])
+
+// 编译选项单例。env 会跨多次 build() 持久化；每次 storeInfo() 根据当前 options 重建，避免自定义文件类型串用。
+let compilerOptions = normalizeFileTypes()
+
+/**
+ * 将单项规范化为扩展名：去除首尾空白、转小写并补一个前导点。
+ * 仅接受字母、数字、连字符和下划线；空字符串、路径分隔符或其他元字符
+ * 均返回 null，由调用方丢弃。扩展名会用于生成尾部匹配正则和查找文件，
+ * 放行元字符可能导致误匹配。
+ */
+function normalizeExt(raw) {
+	if (typeof raw !== 'string') {
+		return null
+	}
+	const v = raw.trim().toLowerCase().replace(/^\.+/, '')
+	if (!/^[a-z0-9_-]+$/.test(v)) {
+		return null
+	}
+	return `.${v}`
+}
+
+/**
+ * 将单项规范化为内联标签名：去除首尾空白、转小写并移除前导点。
+ * 标签名会用于拼接 Cheerio 选择器（如 transTagWxs），因此必须以字母开头，
+ * 且只能包含字母、数字、连字符和下划线。拒绝选择器元字符，避免 'qds,view'
+ * 误选并删除 <view>，破坏编译产物。
+ */
+function normalizeTag(raw) {
+	if (typeof raw !== 'string') {
+		return null
+	}
+	const v = raw.trim().toLowerCase().replace(/^\.+/, '')
+	if (!/^[a-z][a-z0-9_-]*$/.test(v)) {
+		return null
+	}
+	return v
+}
+
+/**
+ * 合并并去重内置项和自定义项；内置项在前，顺序即同名文件的查找优先级。
+ * 传入 reserved 时，落在其中的自定义项被丢弃（防止占用其他角色/逻辑/配置的扩展名）。
+ */
+function mergeUnique(builtins, custom, normalizer, reserved) {
+	const out = [...builtins]
+	const seen = new Set(builtins)
+	if (Array.isArray(custom)) {
+		for (const raw of custom) {
+			const n = normalizer(raw)
+			if (n && !seen.has(n) && !reserved?.has(n)) {
+				seen.add(n)
+				out.push(n)
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * 根据 options.fileTypes 生成本次构建使用的自定义扩展名和标签。
+ * viewScript 同时用于生成文件扩展名和内联标签。
+ */
+function normalizeFileTypes(fileTypes = {}) {
+	const ft = fileTypes || {}
+	return {
+		templateExts: mergeUnique(DEFAULT_TEMPLATE_EXTS, ft.template, normalizeExt, RESERVED_EXTS),
+		styleExts: mergeUnique(DEFAULT_STYLE_EXTS, ft.style, normalizeExt, RESERVED_EXTS),
+		viewScriptExts: mergeUnique(DEFAULT_VIEW_SCRIPT_EXTS, ft.viewScript, normalizeExt, RESERVED_EXTS),
+		viewScriptTags: mergeUnique(DEFAULT_VIEW_SCRIPT_TAGS, ft.viewScript, normalizeTag),
+	}
+}
+
 /**
  * 持久化编译过程的上下文
+ * @param {string} workPath 编译工作目录
+ * @param {{ fileTypes?: { template?: string[], style?: string[], viewScript?: string[] } }} [options] 构建选项
  */
-function storeInfo(workPath) {
+function storeInfo(workPath, options = {}) {
 	storePathInfo(workPath)
 	storeProjectConfig()
 	storeAppConfig()
 	storePageConfig()
 
+	// 根据当前 options 重建，避免上一次 build() 注入的自定义文件类型影响本次构建。
+	compilerOptions = normalizeFileTypes(options.fileTypes)
+
 	return {
 		pathInfo,
 		configInfo,
+		compilerOptions,
 	}
 }
 
 function resetStoreInfo(opts) {
 	pathInfo = opts.pathInfo
 	configInfo = opts.configInfo
-	
+	// Worker 恢复上下文时使用主线程生成的自定义文件类型配置，缺省时回退到内置配置。
+	compilerOptions = opts.compilerOptions || normalizeFileTypes()
+
 	// 重新初始化 npm 解析器
 	if (pathInfo.workPath) {
 		npmResolver = new NpmResolver(pathInfo.workPath)
 	}
+}
+
+function getTemplateExts() {
+	return compilerOptions.templateExts
+}
+
+function getStyleExts() {
+	return compilerOptions.styleExts
+}
+
+function getViewScriptExts() {
+	return compilerOptions.viewScriptExts
+}
+
+function getViewScriptTags() {
+	return compilerOptions.viewScriptTags
 }
 
 function storePathInfo(workPath) {
@@ -144,6 +265,66 @@ function storePageConfig() {
 			collectionPageJson(subPkg.pages, subPkg.root)
 		})
 	}
+
+	storeCustomTabBarConfig()
+}
+
+/**
+ * 微信会把 custom-tab-bar/index 作为每个 tab 页的直属组件创建。业务页面
+ * 不需要在 usingComponents 中显式声明它，因此编译阶段补一个内部组件引用，
+ * 让逻辑、视图和样式三个编译器都能沿现有依赖图收集该组件。
+ */
+function storeCustomTabBarConfig() {
+	const tabBar = configInfo.appInfo?.tabBar
+	if (tabBar?.custom !== true || !Array.isArray(tabBar.list)) {
+		return
+	}
+
+	const componentJsonPath = path.join(pathInfo.workPath, 'custom-tab-bar/index.json')
+	if (!fs.existsSync(componentJsonPath)) {
+		console.warn('[env] tabBar.custom 已启用，但找不到 custom-tab-bar/index.json')
+		return
+	}
+
+	const dependencyName = `dimina-${uuid(CUSTOM_TAB_BAR_COMPONENT_PATH)}`
+	const internalConfig = {
+		usingComponents: {
+			[dependencyName]: CUSTOM_TAB_BAR_COMPONENT_PATH,
+		},
+	}
+	storeComponentConfig(internalConfig, path.join(pathInfo.workPath, 'app.json'))
+	const componentConfig = configInfo.componentInfo[CUSTOM_TAB_BAR_COMPONENT_PATH]
+	if (componentConfig) {
+		componentConfig.customTabBar = true
+	}
+
+	for (const item of tabBar.list) {
+		const pagePath = typeof item?.pagePath === 'string'
+			? item.pagePath.replace(/^\/+/, '')
+			: ''
+		if (!pagePath || !configInfo.appInfo.pages?.includes(pagePath)) {
+			continue
+		}
+		const pageConfig = configInfo.pageInfo[pagePath] ||= {}
+		pageConfig.usingComponents ||= {}
+		const declaredComponents = {
+			...(configInfo.appInfo.usingComponents || {}),
+			...pageConfig.usingComponents,
+		}
+		const declaredEntry = Object.entries(declaredComponents)
+			.find(([, componentPath]) => componentPath === CUSTOM_TAB_BAR_COMPONENT_PATH)
+		let componentName = declaredEntry?.[0] || dependencyName
+		let suffix = 0
+		while (
+			declaredComponents[componentName]
+			&& declaredComponents[componentName] !== CUSTOM_TAB_BAR_COMPONENT_PATH
+		) {
+			suffix++
+			componentName = `${dependencyName}-${suffix}`
+		}
+		pageConfig.usingComponents[componentName] = CUSTOM_TAB_BAR_COMPONENT_PATH
+		pageConfig.customTabBar = { componentName }
+	}
 }
 
 /**
@@ -220,15 +401,17 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 		
 		const cUsing = cContent.usingComponents || {}
 		const isComponent = cContent.component || false
+		const styleIsolation = resolveComponentStyleIsolation(cContent, componentFilePath)
 		const cComponents = Object.keys(cUsing).reduce((acc, key) => {
 			acc[key] = getModuleId(cUsing[key], componentFilePath)
 			return acc
 		}, {})
 
 		configInfo.componentInfo[moduleId] = {
-			id: uuid(),
+			id: uuid(moduleId),
 			path: moduleId,
 			component: isComponent,
+			styleIsolation,
 			usingComponents: cComponents,
 		}
 
@@ -237,6 +420,84 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
 		}
 	}
+}
+
+function getStaticProperty(objectExpression, propertyName) {
+	if (objectExpression?.type !== 'ObjectExpression') {
+		return undefined
+	}
+	return objectExpression.properties?.find((property) => {
+		if (property.type !== 'Property' || property.computed) {
+			return false
+		}
+		return property.key?.name === propertyName || property.key?.value === propertyName
+	})?.value
+}
+
+function normalizeStyleIsolation(value) {
+	return STYLE_ISOLATION_VALUES.has(value) ? value : undefined
+}
+
+/**
+ * styleIsolation can be declared either in component.json or in
+ * Component({ options }). The style compiler must know it before service
+ * runtime starts, so only statically-declared literal options participate.
+ * addGlobalClass is the legacy equivalent of apply-shared.
+ */
+function resolveComponentStyleIsolation(componentConfig, componentJsonPath) {
+	const jsonValue = normalizeStyleIsolation(componentConfig?.styleIsolation)
+	if (jsonValue) {
+		return jsonValue
+	}
+
+	const basePath = componentJsonPath.replace(/\.json$/i, '')
+	const scriptPath = ['.js', '.ts']
+		.map(ext => `${basePath}${ext}`)
+		.find(candidate => fs.existsSync(candidate))
+	if (!scriptPath) {
+		return 'isolated'
+	}
+
+	try {
+		const source = getContentByPath(scriptPath)
+		const { program } = parseSync(scriptPath, source, {
+			sourceType: 'unambiguous',
+		})
+		let extractedValue
+		walk(program, {
+			enter(expression) {
+				if (extractedValue) {
+					return
+				}
+				if (
+					expression?.type !== 'CallExpression'
+					|| expression.callee?.type !== 'Identifier'
+					|| expression.callee.name !== 'Component'
+				) {
+					return
+				}
+				const definition = expression.arguments?.[0]
+				const options = getStaticProperty(definition, 'options')
+				const styleIsolation = getStaticProperty(options, 'styleIsolation')?.value
+				const normalized = normalizeStyleIsolation(styleIsolation)
+				if (normalized) {
+					extractedValue = normalized
+					return
+				}
+				if (getStaticProperty(options, 'addGlobalClass')?.value === true) {
+					extractedValue = 'apply-shared'
+				}
+			},
+		})
+		if (extractedValue) {
+			return extractedValue
+		}
+	}
+	catch (error) {
+		console.warn(`[env] 无法解析组件样式隔离配置 ${scriptPath}: ${error.message}`)
+	}
+
+	return 'isolated'
 }
 
 /**
@@ -339,9 +600,12 @@ function getPages() {
 		const mergedComponents = { ...globalComponents, ...pageComponents }
 		
 		return {
-			id: uuid(),
+			id: uuid(path),
 			path,
+			appStyleScopeId: getAppStyleScopeId(),
+			sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 			usingComponents: mergedComponents,
+			customTabBar: pageInfo[path]?.customTabBar,
 		}
 	})
 
@@ -358,9 +622,12 @@ function getPages() {
 				const mergedComponents = { ...globalComponents, ...pageComponents }
 				
 				return {
-					id: uuid(),
+					id: uuid(fullPath),
 					path: fullPath,
+					appStyleScopeId: getAppStyleScopeId(),
+					sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 					usingComponents: mergedComponents,
+					customTabBar: pageInfo[fullPath]?.customTabBar,
 				}
 			}),
 		}
@@ -371,17 +638,51 @@ function getPages() {
 	}
 }
 
+function collectSharedStyleScopeIds(usingComponents) {
+	const result = []
+	const visited = new Set()
+	const visit = (componentPath) => {
+		if (visited.has(componentPath)) {
+			return
+		}
+		visited.add(componentPath)
+		const component = configInfo.componentInfo[componentPath]
+		if (!component) {
+			return
+		}
+		if (component.styleIsolation === 'shared') {
+			result.push(component.id)
+		}
+		for (const childPath of Object.values(component.usingComponents || {})) {
+			visit(childPath)
+		}
+	}
+	for (const componentPath of Object.values(usingComponents || {})) {
+		visit(componentPath)
+	}
+	return result
+}
+
+function getAppStyleScopeId() {
+	return uuid('app')
+}
+
 export {
 	getAppConfigInfo,
 	getAppId,
 	getAppName,
+	getAppStyleScopeId,
 	getComponent,
 	getContentByPath,
 	getNpmResolver,
 	getPageConfigInfo,
 	getPages,
 	getProjectConfig,
+	getStyleExts,
 	getTargetPath,
+	getTemplateExts,
+	getViewScriptExts,
+	getViewScriptTags,
 	getWorkPath,
 	resetStoreInfo,
 	resolveAppAlias,

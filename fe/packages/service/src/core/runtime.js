@@ -9,8 +9,34 @@ import router from './router'
 
 class Runtime {
 	constructor() {
-		this.app = null
+		this.app = undefined
+		this.defaultApp = {}
+		this.appLaunchOptions = {}
 		this.instances = {}
+		this.pageStates = new Map()
+	}
+
+	setAppLaunchOptions(options) {
+		if (!this.app) {
+			this.appLaunchOptions = options
+		}
+	}
+
+	getApp(options = {}) {
+		return options.allowDefault ? this.app || this.defaultApp : this.app
+	}
+
+	getPageState(bridgeId) {
+		if (!this.pageStates.has(bridgeId)) {
+			this.pageStates.set(bridgeId, {
+				hidden: false,
+				pendingReady: false,
+				pendingShow: false,
+				ready: false,
+				shown: false,
+			})
+		}
+		return this.pageStates.get(bridgeId)
 	}
 
 	queuePendingEvent(instance, payload) {
@@ -46,14 +72,14 @@ class Runtime {
 		console.warn(`[service] triggerEvent ${bridgeId} ${moduleId}, is: ${instance.is}, method: ${methodName} is not exist`)
 	}
 
-	createApp(opts) {
+	createApp(opts = this.appLaunchOptions) {
 		// app 实例只有一个，避免重复创建
 		if (this.app) {
 			console.log('[service] app instance already existed')
 			return
 		}
 
-		const { scene, pagePath: path, query } = opts
+		const { scene, pagePath: path, query } = opts || {}
 		const appModule = loader.getAppModule()
 
 		if (!appModule) {
@@ -63,6 +89,10 @@ class Runtime {
 
 		console.log('[service] create app instance')
 
+		// 与微信基础库一致：allowDefault 返回的占位对象会在 App 声明时
+		// 覆盖合并到 App 配置中，随后为下一次声明重置占位对象。
+		Object.assign(appModule.moduleInfo, this.defaultApp)
+		this.defaultApp = {}
 		this.app = new App(appModule, {
 			scene,
 			path,
@@ -92,7 +122,7 @@ class Runtime {
 	 * @param {*} opts
 	 */
 	createInstance(opts) {
-		const { bridgeId, moduleId, path, query, eventAttr, pageId, parentId, properties, targetInfo, stackId } = opts
+		const { bridgeId, moduleId, path, query, eventAttr, pageId, parentId, properties, propertyNames, targetInfo, stackId, isCustomTabBar = false, deferInitialData = false } = opts
 
 		const module = loader.getModuleByPath(path)
 		if (!module) {
@@ -109,18 +139,24 @@ class Runtime {
 				bridgeId,
 				moduleId,
 				path,
+				isCustomTabBar,
 				query,
 				eventAttr,
 				pageId,
 				parentId,
 				properties,
+				propertyNames,
 				targetInfo,
 			})
 			this.instances[bridgeId][moduleId] = component
 			if (!module.isComponent) {
 				router.push(component, stackId)
 			}
-			component.init()
+			component.init({ deferInitialData })
+			const state = this.getPageState(bridgeId)
+			if (!module.isComponent && state.pendingShow && !state.hidden) {
+				this.pageShow({ bridgeId, moduleId })
+			}
 			
 			return component
 		}
@@ -133,7 +169,11 @@ class Runtime {
 			})
 			this.instances[bridgeId][moduleId] = page
 			router.push(page, stackId)
-			page.init()
+			page.init({ deferInitialData })
+			const state = this.getPageState(bridgeId)
+			if (state.pendingShow && !state.hidden) {
+				this.pageShow({ bridgeId, moduleId })
+			}
 			return page
 		}
 		else {
@@ -141,12 +181,65 @@ class Runtime {
 		}
 	}
 
+	moduleAttached(opts) {
+		const { bridgeId, moduleId, parentId } = opts
+		const instance = this.instances[bridgeId]?.[moduleId]
+		if (!instance || instance.__type__ !== ComponentModule.type || !instance.__isComponent__) {
+			return
+		}
+		if (instance.__componentAttached__ || instance.__componentAttaching__) {
+			return
+		}
+		if (parentId && this.instances[bridgeId]?.[parentId]) {
+			instance.__parentId__ = parentId
+		}
+
+		const parent = this.instances[bridgeId]?.[instance.__parentId__]
+		if (parent?.__isComponent__ && !parent.__componentAttached__) {
+			instance.__componentAttachPending__ = true
+			return
+		}
+		instance.__componentAttachPending__ = false
+		instance.__componentAttaching__ = true
+		try {
+			// exparser 在调用 attached 前先把实例标记为已进入节点树。
+			instance.__componentAttached__ = true
+			instance.componentAttached()
+
+			instance.__componentAttaching__ = false
+			if (this.getPageState(bridgeId).shown && !instance.__pageShown__) {
+				instance.__pageShown__ = true
+				instance.pageShow()
+			}
+
+			const children = Object.values(this.instances[bridgeId] || {}).filter(child => (
+				child?.__parentId__ === moduleId && child.__componentAttachPending__
+			))
+			for (const child of children) {
+				this.moduleAttached({ bridgeId, moduleId: child.__id__ })
+			}
+
+			if (instance.__pendingReadyOpts__) {
+				const pendingReadyOpts = instance.__pendingReadyOpts__
+				delete instance.__pendingReadyOpts__
+				this.moduleReady(pendingReadyOpts)
+			}
+		}
+		finally {
+			instance.__componentAttaching__ = false
+		}
+	}
+
 	moduleReady(opts) {
-		const { bridgeId, moduleId, propBindings } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const { bridgeId, moduleId, propBindings, eventPath } = opts
+		const instance = this.instances[bridgeId]?.[moduleId]
 
 		if (!instance) {
 			return
+		}
+
+		if (Array.isArray(eventPath)) {
+			instance.__eventPath__ = eventPath
 		}
 		
 		// 如果有属性绑定信息，注册到父组件
@@ -162,10 +255,27 @@ class Runtime {
 		}
 
 		if (instance.__type__ === ComponentModule.type) {
-			// 调用组件的 ready 生命周期
-			instance.componentReadied()
-			// 标记组件已准备就绪
+			if (instance.__isComponent__ && !instance.__componentAttached__) {
+				instance.__pendingReadyOpts__ = opts
+				return
+			}
+			if (instance.__componentReadied__) {
+				return
+			}
+			const pendingChildren = Object.values(this.instances[bridgeId] || {}).some(child => (
+				child?.__isComponent__
+				&& child.__componentAttached__
+				&& !child.__componentReadied__
+				&& this.isDescendantInstance(child, instance, bridgeId)
+			))
+			if (pendingChildren) {
+				instance.__pendingReadyOpts__ = opts
+				return
+			}
+			// Mark ready before invoking user code so re-entrant messages cannot
+			// dispatch the lifetime twice.
 			instance.__componentReadied__ = true
+			instance.componentReadied()
 			this.flushPendingEvents(instance)
 			instance.flushInitSetDataCallbacks?.()
 			
@@ -174,35 +284,74 @@ class Runtime {
 			if (pageInstance) {
 				this.checkAndCallPageReady(bridgeId, pageInstance.__id__)
 			}
+
+			let parent = this.instances[bridgeId]?.[instance.__parentId__]
+			while (parent?.__isComponent__) {
+				if (parent.__pendingReadyOpts__) {
+					const pendingReadyOpts = parent.__pendingReadyOpts__
+					delete parent.__pendingReadyOpts__
+					this.moduleReady(pendingReadyOpts)
+				}
+				parent = this.instances[bridgeId]?.[parent.__parentId__]
+			}
 		}
+	}
+
+	isDescendantInstance(candidate, ancestor, bridgeId) {
+		let current = candidate
+		while (current?.__parentId__) {
+			if (current.__parentId__ === ancestor.__id__) {
+				return true
+			}
+			current = this.instances[bridgeId]?.[current.__parentId__]
+		}
+		return false
 	}
 
 	moduleUnmounted(opts) {
 		const { bridgeId, moduleId } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const instance = this.instances[bridgeId]?.[moduleId]
 
 		if (!instance) {
 			return
 		}
 
 		if (instance.__type__ === ComponentModule.type) {
-			instance.componentDetached()
+			if ((!instance.__isComponent__ || instance.__componentAttached__) && !instance.__componentDetached__) {
+				instance.componentDetached()
+				instance.__componentDetached__ = true
+			}
 		}
 		delete this.instances[bridgeId][moduleId]
 	}
 
 	pageShow(opts) {
 		const { bridgeId } = opts
+		const state = this.getPageState(bridgeId)
+		state.hidden = false
+		state.pendingShow = true
 		const instances = this.instances[bridgeId]
 
 		// 首次进入时模块可能不存在
 		if (!instances) {
 			return
 		}
+		const pageInstance = this.getPageInstance(bridgeId)
+		if (!pageInstance?.initd) {
+			return
+		}
+		if (state.shown) {
+			state.pendingShow = false
+			return
+		}
+		state.shown = true
+		state.pendingShow = false
 
 		const pageInstances = []
 
-		Object.values(instances).forEach((instance) => {
+		const orderedInstances = this.getInstancesInTreeOrder(bridgeId)
+
+		orderedInstances.forEach((instance) => {
 			if (!instance) {
 				return
 			}
@@ -213,7 +362,8 @@ class Runtime {
 				if (!instance.__isComponent__) {
 					pageInstances.push(instance)
 				}
-				else {
+				else if (instance.__componentAttached__ && !instance.__pageShown__) {
+					instance.__pageShown__ = true
 					instance.pageShow()
 				}
 			}
@@ -223,18 +373,25 @@ class Runtime {
 		pageInstances.forEach((instance) => {
 			instance.pageShow()
 		})
+
+		if (state.pendingReady) {
+			this.pageReady({ ...opts, moduleId: pageInstance.__id__ })
+		}
 	}
 
 	pageReady(opts) {
 		const { bridgeId, moduleId } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const state = this.getPageState(bridgeId)
+		state.pendingReady = true
+		const instance = this.instances[bridgeId]?.[moduleId]
 
 		if (!instance) {
 			return
 		}
 
-		// 先调用 pageShow
-		this.pageShow(opts)
+		if (state.hidden || !state.shown || state.ready) {
+			return
+		}
 		
 		// 标记页面准备就绪，但延迟调用 onReady
 		// 等待所有组件的 ready 执行完毕后再调用
@@ -267,8 +424,9 @@ class Runtime {
 	}
 
 	checkAndCallPageReady(bridgeId, moduleId) {
-		const instance = this.instances[bridgeId][moduleId]
-		if (!instance || !instance.__pageReadyPending__) {
+		const state = this.getPageState(bridgeId)
+		const instance = this.instances[bridgeId]?.[moduleId]
+		if (!instance || !instance.__pageReadyPending__ || !state.shown || state.ready) {
 			return
 		}
 
@@ -276,6 +434,8 @@ class Runtime {
 		if (!instances) {
 			// 没有组件，直接调用页面 onReady
 			instance.__pageReadyPending__ = false
+			state.pendingReady = false
+			state.ready = true
 			instance.pageReady()
 			return
 		}
@@ -292,17 +452,31 @@ class Runtime {
 		if (pendingComponents.length === 0) {
 			// 所有组件都已准备就绪，调用页面 onReady
 			instance.__pageReadyPending__ = false
+			state.pendingReady = false
+			state.ready = true
 			instance.pageReady()
 		}
 	}
 
 	pageHide(opts) {
 		const { bridgeId } = opts
+		const state = this.getPageState(bridgeId)
+		state.hidden = true
+		state.pendingShow = false
+		if (!state.shown) {
+			return
+		}
+		state.shown = false
 		const instances = this.instances[bridgeId]
+		if (!instances) {
+			return
+		}
 
 		const pageInstances = []
 
-		Object.values(instances).forEach((instance) => {
+		const orderedInstances = this.getInstancesInTreeOrder(bridgeId)
+
+		orderedInstances.forEach((instance) => {
 			if (!instance) {
 				return
 			}
@@ -313,7 +487,8 @@ class Runtime {
 				if (!instance.__isComponent__) {
 					pageInstances.push(instance)
 				}
-				else {
+				else if (instance.__componentAttached__ && instance.__pageShown__) {
+					instance.__pageShown__ = false
 					instance.pageHide()
 				}
 			}
@@ -336,12 +511,24 @@ class Runtime {
 			return
 		}
 
-		Object.values(instances).forEach((instance) => {
+		const instanceList = this.getInstancesInTreeOrder(bridgeId)
+		const customComponents = this.getInstancesInTreeOrder(bridgeId, { postOrder: true })
+			.filter(instance => instance?.__type__ === ComponentModule.type && instance.__isComponent__)
+
+		customComponents.forEach((instance) => {
+			if (instance.__componentAttached__ && !instance.__componentDetached__) {
+				instance.componentDetached()
+				instance.__componentDetached__ = true
+			}
+		})
+
+		instanceList.forEach((instance) => {
 			if (!instance) {
 				return
 			}
-			if (instance.__type__ === ComponentModule.type) {
+			if (instance.__type__ === ComponentModule.type && !instance.__isComponent__ && !instance.__componentDetached__) {
 				instance.componentDetached()
+				instance.__componentDetached__ = true
 			}
 			instance.pageUnload()
 		})
@@ -349,16 +536,75 @@ class Runtime {
 		router.pop()
 
 		delete this.instances[bridgeId]
+		this.pageStates.delete(bridgeId)
+	}
+
+	getInstancesInTreeOrder(bridgeId, { postOrder = false } = {}) {
+		const instances = Object.values(this.instances[bridgeId] || {}).filter(Boolean)
+		const byId = new Map(instances.map(instance => [instance.__id__, instance]))
+		const childrenByParentId = new Map()
+		const roots = []
+
+		for (const instance of instances) {
+			if (instance.__parentId__ && byId.has(instance.__parentId__)) {
+				const children = childrenByParentId.get(instance.__parentId__) || []
+				children.push(instance)
+				childrenByParentId.set(instance.__parentId__, children)
+			}
+			else {
+				roots.push(instance)
+			}
+		}
+
+		const ordered = []
+		const visited = new Set()
+		const visit = (instance) => {
+			if (!instance || visited.has(instance)) {
+				return
+			}
+			visited.add(instance)
+			if (!postOrder) {
+				ordered.push(instance)
+			}
+			for (const child of childrenByParentId.get(instance.__id__) || []) {
+				visit(child)
+			}
+			if (postOrder) {
+				ordered.push(instance)
+			}
+		}
+
+		roots.forEach(visit)
+		// Keep malformed/orphaned cycles observable and deterministic instead of
+		// silently dropping them from lifecycle delivery.
+		instances.forEach(visit)
+		return ordered
 	}
 
 	pageScroll(opts) {
 		const { bridgeId, moduleId, scrollTop } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const instance = this.instances[bridgeId]?.[moduleId]
 
 		if (!instance) {
 			return
 		}
 		instance.pageScrollTop({ scrollTop })
+	}
+
+	pagePullDownRefresh({ bridgeId }) {
+		this.getPageInstance(bridgeId)?.pagePullDownRefresh()
+	}
+
+	pageReachBottom({ bridgeId }) {
+		this.getPageInstance(bridgeId)?.pageReachBottom()
+	}
+
+	pageShareAppMessage({ bridgeId, ...options }) {
+		return this.getPageInstance(bridgeId)?.pageShareAppMessage(options)
+	}
+
+	pageTabItemTap({ bridgeId, ...item }) {
+		this.getPageInstance(bridgeId)?.pageTabItemTap(item)
 	}
 
 	pageResize(opts) {
@@ -369,34 +615,39 @@ class Runtime {
 			return
 		}
 
-		Object.values(instances).forEach((instance) => {
+		const pageInstances = []
+		const orderedInstances = this.getInstancesInTreeOrder(bridgeId)
+
+		orderedInstances.forEach((instance) => {
 			if (!instance) {
 				return
 			}
 			if (instance.__type__ === PageModule.type) {
-				instance.pageResize(size)
+				pageInstances.push(instance)
 			}
 			else if (instance.__type__ === ComponentModule.type) {
 				if (!instance.__isComponent__) {
-					instance.pageResize(size)
+					pageInstances.push(instance)
 				}
-				else {
+				else if (instance.__componentAttached__) {
 					instance.pageResize(size)
 				}
 			}
 		})
+
+		pageInstances.forEach(instance => instance.pageResize(size))
 	}
 
 	componentError(opts) {
-		const { bridgeId, moduleId } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const { bridgeId, moduleId, error } = opts
+		const instance = this.instances[bridgeId]?.[moduleId]
 
 		if (!instance) {
 			return
 		}
 
 		if (instance.__type__ === ComponentModule.type) {
-			instance.componentError()
+			instance.componentError(error)
 		}
 	}
 
@@ -408,11 +659,12 @@ class Runtime {
 			return
 		}
 
-		Object.values(instances).forEach((instance) => {
-			if (instance?.__type__ === ComponentModule.type) {
-				instance.componentRouteDone()
-			}
-		})
+		this.getInstancesInTreeOrder(bridgeId)
+			.forEach((instance) => {
+				if (instance?.__type__ === ComponentModule.type && (!instance.__isComponent__ || instance.__componentAttached__)) {
+					instance.componentRouteDone()
+				}
+			})
 	}
 
 	/**

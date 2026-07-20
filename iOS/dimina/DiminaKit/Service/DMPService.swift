@@ -76,7 +76,7 @@ public class DMPService {
 
     @discardableResult
     func fromContainerMessage(data: DMPMap) async -> JSValue? {
-        print("DMPService: fromContainer data: \(data.toJsonString())")
+        DMPLogger.debug("DMPService: fromContainer data: \(data.toJsonString())")
 
         let script: String = "DiminaServiceBridge.onMessage(\(data.toJsonString()))"
         return await self.evaluateScript(script)

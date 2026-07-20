@@ -9,6 +9,7 @@ import { WebViewParams } from './DMPComponetParams';
 import { DMPPageStyle } from '../../DPages/DMPPageStyle';
 import { DMPNavigatorDelegate } from '../../Navigator/DMPNavigatorDelegate';
 import { DMPNavigatorManager } from '../../Navigator/DMPNavigatorManager';
+import { DMPLogger } from '../../EventTrack/DMPLogger';
 
 //星河小程序内部嵌入的webview
 @Component
@@ -101,7 +102,7 @@ export struct EmbedWebView {
         .cacheMode(this.mode)
         .onErrorReceive((event) => {
           if (event != null) {
-            console.log("victor webview load error:" + event.error.getErrorInfo().toString())
+            DMPLogger.e('', "webview load error:" + event.error.getErrorInfo().toString())
           }
         })
 

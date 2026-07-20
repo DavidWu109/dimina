@@ -6,6 +6,7 @@ import { BusinessError, request } from '@kit.BasicServicesKit';
 import { DMPMap } from '@didi-dimina/dimina/ets/Utils/DMPMap';
 import { DMPContextUtils } from '../../Utils/DMPContextUtils';
 import { DMPFileUrlConvertor } from '../../Bundle/Util/DMPFileUrlConvertor';
+import { DMPLogger } from '../../EventTrack/DMPLogger';
 export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
   getExportMethods(): string[] {
     return ['request','downloadFile','uploadFile'];
@@ -113,7 +114,7 @@ export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
         .then((uploadTask: request.UploadTask) => {
           uploadTask.on('complete', (taskStates: Array<request.TaskState>) => {
             for (let i = 0; i < taskStates.length; i++) {
-              console.info(`upload complete taskState: ${JSON.stringify(taskStates[i])}`);
+              DMPLogger.i('', `upload complete taskState: ${JSON.stringify(taskStates[i])}`);
                this.invokeSuccessCallback(callback,new DMPMap({"statusCode":taskStates[i]['responseCode'],"data":taskStates[i]['path']}))
             }
           });

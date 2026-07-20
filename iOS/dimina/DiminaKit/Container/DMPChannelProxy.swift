@@ -59,7 +59,7 @@ class DMPChannelProxy {
         } else if target == "container" {
             if type == "invokeAPI" {
                 guard let name = body.get("name") as? String, !name.isEmpty else {
-                    print("参数格式错误：name为空")
+                    DMPLogger.debug("参数格式错误：name为空")
                     return DMPMap()
                 }
 
@@ -70,7 +70,7 @@ class DMPChannelProxy {
                 if let webview = webview {
                     webview.hideLoading()
                 }
-                print("domReady")
+                DMPLogger.debug("domReady")
             }
         } else if target == "webview" {
             // 处理 来自h5 jssdk 的消息
@@ -81,7 +81,7 @@ class DMPChannelProxy {
             //        (params is String || params is Int || params is Bool || params is [Any]) {
             //         return app.container?.callBridgeMethods(methodName: name, webViewId: webViewId, params: params, app: app)
             //     } else {
-            //         print("params is not String, Int, Bool, [Any]")
+            //         DMPLogger.debug("params is not String, Int, Bool, [Any]")
             //     }
             // }
         }
@@ -90,22 +90,22 @@ class DMPChannelProxy {
     }
 
     static func containerToService(msg: DMPMap, app: DMPApp?) {
-        print("🔴 DMPChannelProxy.containerToService: \(msg.toJsonString()) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.containerToService: \(msg.toJsonString()) \(app)")
         app?.service?.fromContainer(data: msg)
     }
 
     static func containerToRender(msg: DMPMap, app: DMPApp?, webViewId: Int) {
-        print("🔴 DMPChannelProxy.containerToRender: \(msg.toJsonString()) \(app) \(webViewId)")
+        DMPLogger.debug("🔴 DMPChannelProxy.containerToRender: \(msg.toJsonString()) \(app) \(webViewId)")
         app?.render?.fromContainer(data: msg, webViewId: webViewId)
     }
 
     static func serviceToRender(msg: String, webViewId: Int, app: DMPApp?) {
-        print("🔴 DMPChannelProxy.serviceToRender: \(msg) \(webViewId) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.serviceToRender: \(msg) \(webViewId) \(app)")
         app?.render?.fromService(msg: msg, webViewId: webViewId)
     }
 
     static func renderToService(msg: String, app: DMPApp?) async {
-        print("🔴 DMPChannelProxy.renderToService: \(msg) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.renderToService: \(msg) \(app)")
         await app?.service?.fromRender(data: msg)
     }
 }

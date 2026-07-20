@@ -21,11 +21,16 @@ class Service {
 
 	init() {
 		this.message.on('loadResource', (msg) => {
-			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', hostEnv: hostEnvSnapshot } = msg
+			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', hostEnv: hostEnvSnapshot, query, resourceLoadId, scene } = msg
 			if (hostEnvSnapshot) {
 				hostEnv.init(hostEnvSnapshot)
 			}
-			loader.loadResource({ appId, bridgeId, pagePath, root, baseUrl })
+			runtime.setAppLaunchOptions({ scene, pagePath, query })
+			loader.loadResource({ appId, bridgeId, pagePath, root, baseUrl, resourceLoadId })
+		})
+
+		this.message.on('hostEnvUpdate', (patch) => {
+			hostEnv.update(patch)
 		})
 
 		// 来自 components/events.js
@@ -55,15 +60,57 @@ class Service {
 			callback.invoke(id, args)
 		})
 
+		// A built-in component lives in the render thread, while container API
+		// callbacks are delivered to the service thread. Relay those callbacks
+		// to the render callback registry without bypassing the normal API bridge.
+		this.message.on('componentInvokeAPI', (msg) => {
+			const { apiName, bridgeId, callbacks = {}, params = {} } = msg
+			let successId
+			let failId
+			const sendToRender = (renderCallbackId, data) => {
+				if (!renderCallbackId) return
+				this.message.send({
+					type: 'triggerCallback',
+					target: 'render',
+					body: { bridgeId, data, success: renderCallbackId },
+				})
+			}
+
+			if (callbacks.success) {
+				successId = callback.store(data => sendToRender(callbacks.success, data))
+			}
+			if (callbacks.fail) {
+				failId = callback.store(data => sendToRender(callbacks.fail, data))
+			}
+			const completeId = callback.store((data) => {
+				sendToRender(callbacks.complete, data)
+				callback.remove(successId)
+				callback.remove(failId)
+			})
+
+			this.message.invoke({
+				type: 'invokeAPI',
+				target: 'container',
+				body: {
+					name: apiName,
+					bridgeId,
+					params: { ...params, complete: completeId, fail: failId, success: successId },
+				},
+			})
+		})
+
+		this.message.on('resourceLoadFailed', ({ bridgeId, pagePath, errors = [] }) => {
+			console.error(`[service] resourceLoadFailed: bridgeId: ${bridgeId}, pagePath: ${pagePath}, errors: ${errors.join('; ')}`)
+		})
+
 		this.onAppMsg()
 		this.onModuleMsg()
 	}
 
 	onAppMsg() {
-		// 创建 app 实例
+		// 双线程资源就绪后创建首个页面实例
 		this.message.on('resourceLoaded', (msg) => {
-			const { bridgeId, scene, pagePath, query, stackId } = msg
-			runtime.createApp({ scene, pagePath, query })
+			const { bridgeId, pagePath, query, stackId } = msg
 
 			const module = loader.getModuleByPath(pagePath)
 			if (!module) {
@@ -73,8 +120,16 @@ class Service {
 			const initialProps = loader.getPropsByPath(module.usingComponents)
 
 			const pageId = `page_${uuid()}`
-			// 创建页面实例
-			runtime.createInstance({ bridgeId, moduleId: pageId, path: pagePath, query, stackId })
+			// 创建页面实例。生命周期同步执行，但首屏数据必须排在 firstRender 后发送，
+			// 确保渲染线程已经注册对应 pageId 的数据监听。
+			const page = runtime.createInstance({
+				bridgeId,
+				moduleId: pageId,
+				path: pagePath,
+				query,
+				stackId,
+				deferInitialData: true,
+			})
 
 			message.send({
 				type: 'firstRender',
@@ -87,6 +142,7 @@ class Service {
 					query,
 				},
 			})
+			page?.sendInitialData()
 		})
 
 		this.message.on('appShow', () => {
@@ -114,6 +170,11 @@ class Service {
 		this.message.on('mC', (msg) => {
 			// 创建逻辑层组件实例映射
 			runtime.createInstance(msg)
+		})
+
+		this.message.on('mA', (msg) => {
+			// 组件真实进入视图节点树后执行 attached。
+			runtime.moduleAttached(msg)
 		})
 
 		this.message.on('mR', (msg) => {
@@ -146,16 +207,28 @@ class Service {
 			runtime.pageHide(msg)
 		})
 
-		this.message.on('pagePullDownRefresh', () => {
-			// TODO:触发下拉刷新时执行
+		this.message.on('pagePullDownRefresh', (msg) => {
+			runtime.pagePullDownRefresh(msg)
 		})
 
-		this.message.on('pageReachBottom', () => {
-			// TODO:页面触底时执行
+		this.message.on('pageReachBottom', (msg) => {
+			runtime.pageReachBottom(msg)
 		})
 
-		this.message.on('pageShareAppMessage', () => {
-			// TODO:页面被用户分享时执行
+		this.message.on('pageShareAppMessage', (msg) => {
+			const result = runtime.pageShareAppMessage(msg)
+			if (msg?.success) {
+				this.message.send({
+					type: 'triggerCallback',
+					target: 'container',
+					body: {
+						bridgeId: msg.bridgeId,
+						id: msg.success,
+						args: [result],
+						data: result,
+					},
+				})
+			}
 		})
 
 		this.message.on('pageScroll', (msg) => {
@@ -166,22 +239,16 @@ class Service {
 		this.message.on('pageResize', (msg) => {
 			// 页面尺寸变化时执行
 			runtime.pageResize(msg)
-
-			// TODO: 调用组件 pageLifetimes.resize
 		})
 
-		this.message.on('onTabItemTap', () => {
-			// TODO:tab 点击时执行
-			// console.log(item.index)
-			// console.log(item.pagePath)
-			// console.log(item.text)
+		this.message.on('onTabItemTap', (msg) => {
+			runtime.pageTabItemTap(msg)
 		})
 
 		// 组件所在页面路由动画完成时执行
 		this.message.on('pageRouteDone', (msg) => {
 			const { bridgeId } = msg
 
-			// TODO: 调用组件 pageLifetimes.routeDone
 			runtime.componentRouteDone({ bridgeId })
 		})
 

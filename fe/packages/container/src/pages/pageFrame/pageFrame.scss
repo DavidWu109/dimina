@@ -1,6 +1,6 @@
 :root {
-    // 响应式字体大小: 最小 0.4px (300px 屏幕), 首选 100vw/750, 最大 2px (1500px 屏幕)
-    // preferred=基准字体大小 / 屏幕宽度 * 100vw
+    // Legacy packages emitted rpx as rem. New packages carry an explicit vw
+    // marker, so this scale remains the safe default for stored app bundles.
     font-size: clamp(0.4px, 0.13333vw, 2px);
     user-select: none;
     -webkit-user-select: none;
@@ -72,6 +72,7 @@ body {
 
 .dd-page {
     box-sizing: border-box;
+    min-height: 100vh;
 }
 
 @font-face {

@@ -6,37 +6,64 @@ class Loader {
 		this.staticModules = {}
 	}
 
-	loadResource(opts) {
-		const { bridgeId, appId, pagePath, root, baseUrl } = opts
+	async loadResource(opts) {
+		const { bridgeId, appId, pagePath, root, baseUrl, resourceLoadId } = opts
 
 		const filename = pagePath.replace(/\//g, '_')
 		const appStyleResourcePath = `${baseUrl}${appId}/main/app.css`
 		const styleResourcePath = `${baseUrl}${appId}/${root}/${filename}.css`
 		const viewResourcePath = `${baseUrl}${appId}/${root}/${filename}.js`
 
-		Promise.allSettled([
+		const results = await Promise.allSettled([
 			this.loadStyleFile(appStyleResourcePath),
 			this.loadStyleFile(styleResourcePath),
 			this.loadScriptFile(viewResourcePath),
-		]).then(
-			(results) => {
-				window.modRequire(pagePath)
-				message.invoke({
-					type: 'renderResourceLoaded',
-					target: 'service',
-					body: {
-						bridgeId,
-					},
-				})
+		])
 
-				const errors = results
-					.filter(result => result.status === 'rejected')
-					.map(result => result.reason)
-				if (errors.length) {
-					console.error('[system]', '[render]', `资源加载失败: ${errors}`)
-				}
+		const errors = results
+			.filter(result => result.status === 'rejected')
+			.map(result => result.reason instanceof Error ? result.reason.message : String(result.reason))
+		if (errors.length) {
+			this.reportResourceLoadFailed({ bridgeId, pagePath, errors, resourceLoadId })
+			return false
+		}
+
+		try {
+			window.modRequire(pagePath)
+		}
+		catch (error) {
+			this.reportResourceLoadFailed({
+				bridgeId,
+				pagePath,
+				resourceLoadId,
+				errors: [error instanceof Error ? error.message : String(error)],
+			})
+			return false
+		}
+
+		message.invoke({
+			type: 'renderResourceLoaded',
+			target: 'service',
+			body: {
+				bridgeId,
+				resourceLoadId,
 			},
-		)
+		})
+		return true
+	}
+
+	reportResourceLoadFailed({ bridgeId, pagePath, errors, resourceLoadId }) {
+		console.error('[system]', '[render]', `资源加载失败: ${errors.join('; ')}`)
+		message.invoke({
+			type: 'renderResourceLoadFailed',
+			target: 'service',
+			body: {
+				bridgeId,
+				resourceLoadId,
+				pagePath,
+				errors,
+			},
+		})
 	}
 
 	loadStyleFile(path) {
