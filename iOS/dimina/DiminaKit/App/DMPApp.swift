@@ -472,17 +472,20 @@ public class DMPApp {
     @MainActor
     public func openPage(launchConfig: DMPLaunchConfig) async {
         // 优先使用传入的 path，没传时 fallback 到 app-config.json 的第一个页面
-        let entryPath = (launchConfig.appEntryPath ?? "").isEmpty
+        let requestedPath = (launchConfig.appEntryPath ?? "").isEmpty
             ? (self.bundleAppConfig?.entryPagePath ?? "")
             : launchConfig.appEntryPath ?? ""
-        DMPLog.app.info("openPage entryPath=\(entryPath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
+        let route = DMPPageRoute(path: requestedPath)
+        let query = route.merging(query: launchConfig.query)
+        DMPLog.app.info("openPage entryPath=\(route.pagePath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
 
         // Cache the resolved launch config for applyUpdate relaunch
         var resolvedConfig = launchConfig
-        resolvedConfig.appEntryPath = entryPath
+        resolvedConfig.appEntryPath = route.pagePath
+        resolvedConfig.query = query
         currentLaunchConfig = resolvedConfig
 
-        await navigator?.launch(to: entryPath, query: launchConfig.query)
+        await navigator?.launch(to: route.pagePath, query: query)
     }
 
     @MainActor

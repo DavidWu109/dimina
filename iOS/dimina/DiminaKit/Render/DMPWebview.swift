@@ -329,13 +329,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
 
     public func setPagePath(pagePath: String) {
-        // 防御：pagePath 用于 mini-app 的资源文件名转换（e.g. pages_x_y.css），
-        // 不能带 query。任何 ?xxx 都剥掉，query 通过 setQuery 单独传。
-        if let qIdx = pagePath.firstIndex(of: "?") {
-            self.pagePath = String(pagePath[..<qIdx])
-        } else {
-            self.pagePath = pagePath
-        }
+        self.pagePath = pagePath
     }
 
     public func getQuery() -> [String: Any] {

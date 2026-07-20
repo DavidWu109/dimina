@@ -36,8 +36,8 @@ public class RouteAPI: DMPContainerApi {
             return DMPAsyncResult()
         }
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
 
         // 校验是不是 tabBar 页面
         if let tabBar = app?.getBundleAppConfig()?.tabBar, !tabBar.contains(pagePath: pagePath) {
@@ -68,9 +68,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
         DMPLog.bridge.info("navigateTo url=\(url) → pagePath=\(pagePath) query=\(query)")
 
         Task { @MainActor in
@@ -94,9 +94,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
 
         Task { @MainActor in
             await app?.getNavigator()?.redirectTo(to: pagePath, query: query)
@@ -133,9 +133,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
 
         Task { @MainActor in
             await app?.getNavigator()?.relaunch(to: pagePath, query: query)

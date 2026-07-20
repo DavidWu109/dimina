@@ -172,6 +172,7 @@
 - `DMPContainerApi.create()` 显式实例化并注册所有内置 API；
 - 将当前 App 的 API 名称和自定义 namespace 注入 service JS；
 - `wx.login` 由 EchoWebKit 的业务 handler 注入，Dimina 不再持有登录 provider；
+- 原始页面 URL 在 `DMPPageRoute` 中统一拆成 `pagePath + query`，WebView 只接收规范化后的路径；
 - 增加文件系统、设备信息、音频、TabBar 和 UI 反馈等业务需要的 API；
 - 在 service 启动阶段为 Taro 和部分微信同步 API 注入兼容层；
 - Storage Sync API 同时接受数组参数和对象参数，并按 `appId` 隔离存储。
