@@ -117,7 +117,7 @@
 
 主要文件：
 
-- `iOS/dimina/DiminaKit/Container/DMPPageOverlayProvider.swift`
+- `iOS/dimina/DiminaKit/Container/DMPPageCapsuleProvider.swift`
 - `iOS/dimina/DiminaKit/Container/DMPPageController.swift`
 - `iOS/dimina/DiminaKit/Container/UI/DMPTabBarContainerController.swift`
 - `iOS/dimina/DiminaKit/Container/UI/DMPTabBarView.swift`
@@ -129,13 +129,15 @@
 
 修改内容：
 
-- 增加 `DMPPageOverlayProvider`，允许宿主把胶囊按钮等视图覆盖到小程序页面；
-- 增加 `DMPNavigationBarColorApplicable`，让 `wx.setNavigationBarColor` 同步宿主 overlay 的前景色和背景色；
+- 增加 App 级 `DMPPageCapsuleProvider`，允许宿主在 launch 前替换内置胶囊；
+- Provider 只接收页面信息快照与关闭动作，不持有 `DMPPageController`、`DMPApp` 或 WebView；
+- Dimina 固定胶囊位置和尺寸，确保原生布局与 `getMenuButtonBoundingClientRect` 一致；
+- `wx.setNavigationBarColor` 通过 `DMPPageCapsuleStyle` 同步宿主胶囊样式；
 - 自建 UIKit TabBar 容器和视图，支持图标、选中态、隐藏、badge 和 red dot；
 - 扩展 `app-config.json` 的 window/tabBar 数据模型并规范化页面路径；
 - `switchTab`、push、back、redirect 等导航操作同步页面记录和生命周期；
 - 对暗色模式、导航栏样式缓存和宿主胶囊关闭行为做了适配；
-- 本轮同步吸收上游新的菜单按钮几何计算，但保留宿主 overlay 协议。
+- 本轮同步吸收上游新的菜单按钮几何计算，并把宿主扩展收窄为 capsule provider。
 
 目的：
 

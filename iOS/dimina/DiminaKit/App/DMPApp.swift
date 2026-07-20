@@ -22,8 +22,7 @@ public class DMPApp {
     public var container: DMPContainer?
     public var containerApi: DMPContainerApi?
 
-    /// Host app provides overlay views (e.g., capsule button) for mini-program pages
-    public var pageOverlayProvider: DMPPageOverlayProvider?
+    private(set) var pageCapsuleProvider: DMPPageCapsuleProvider?
 
     private var isLaunching = false
     private var isDestroyed = false
@@ -135,6 +134,28 @@ public class DMPApp {
         }
 
         pendingApiRegistrations.append((handler, conflictPolicy))
+        return true
+    }
+
+    /// Registers a host-provided replacement for the built-in page capsule.
+    ///
+    /// Register the provider before calling `launch`. The provider is scoped to
+    /// this `DMPApp` and is released when the app is destroyed.
+    @MainActor
+    @discardableResult
+    public func registerPageCapsuleProvider(_ provider: DMPPageCapsuleProvider) -> Bool {
+        guard !isLaunching, container == nil, !isDestroyed else {
+            DMPLogger.debug(
+                "registerPageCapsuleProvider skipped: provider must be registered before launch"
+            )
+            return false
+        }
+        guard pageCapsuleProvider == nil else {
+            DMPLogger.debug("registerPageCapsuleProvider skipped: provider is already registered")
+            return false
+        }
+
+        pageCapsuleProvider = provider
         return true
     }
 
@@ -542,6 +563,7 @@ public class DMPApp {
         containerApi = nil
         pendingApiRegistrations.removeAll()
         render = nil
+        pageCapsuleProvider = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 

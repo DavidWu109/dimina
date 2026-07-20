@@ -105,14 +105,6 @@ public class NavigationBarAPI: DMPContainerApi {
 
                 navigationController.navigationBar.tintColor = textColor
                 navigationController.navigationBar.setNeedsLayout()
-
-                // 通知 overlay (宿主胶囊) 切换深/浅模式 —— overlayView 需要宿主通过 pageOverlayProvider 注入
-                if let pageController = topViewController as? DMPPageController,
-                   pageController.responds(to: Selector(("overlayView"))),
-                   let overlay = pageController.value(forKey: "overlayView"),
-                   let stylable = overlay as? DMPNavigationBarColorApplicable {
-                    stylable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: backgroundColor)
-                }
             }
 
             let updatedNavStyle: [String: Any] = {

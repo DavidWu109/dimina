@@ -36,6 +36,8 @@ public class DMPPageController: UIViewController {
     private var customNavigationCapsuleMoreButton: UIButton?
     private var customNavigationCapsuleCloseButton: UIButton?
     private var customNavigationCapsuleSeparatorView: UIView?
+    private weak var pageCapsuleProvider: DMPPageCapsuleProvider?
+    private var isUsingHostCapsule = false
     private var miniProgramMenuContainerView: UIView?
     private var isClosingMiniProgram = false
     private var webViewTopToNavigationConstraint: NSLayoutConstraint?
@@ -271,15 +273,26 @@ public class DMPPageController: UIViewController {
         titleLabel.lineBreakMode = .byTruncatingTail
 
         let capsuleView: UIView
-        let useHostOverlay: Bool
-        if let overlayProvider = app?.pageOverlayProvider,
-           let overlayView = overlayProvider.overlayView(for: self, isRoot: isRoot) {
-            overlayView.translatesAutoresizingMaskIntoConstraints = false
-            capsuleView = overlayView
-            useHostOverlay = true
+        let usesHostCapsule: Bool
+        let capsuleProvider = app?.pageCapsuleProvider
+        let capsuleContext = DMPPageCapsuleContext(
+            appId: appConfig.appId,
+            appName: appConfig.appName,
+            pagePath: pagePath,
+            query: query ?? [:],
+            isRoot: isRoot,
+            close: { [weak self] in
+                self?.capsuleCloseButtonTapped()
+            }
+        )
+        if let providedView = capsuleProvider?.makeCapsuleView(for: capsuleContext) {
+            providedView.translatesAutoresizingMaskIntoConstraints = false
+            capsuleView = providedView
+            usesHostCapsule = true
+            pageCapsuleProvider = capsuleProvider
         } else {
             capsuleView = makeCapsuleButton()
-            useHostOverlay = false
+            usesHostCapsule = false
         }
         let menuButtonRect = MenuAPI.getMenuButtonBoundingClientRect()
         let capsuleWidth = CGFloat(
@@ -328,20 +341,16 @@ public class DMPPageController: UIViewController {
 
             capsuleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             capsuleView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -capsuleTrailing),
+            capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth),
+            capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight),
         ])
-
-        if useHostOverlay {
-            // 宿主 overlay 自适应尺寸
-        } else {
-            capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth).isActive = true
-            capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight).isActive = true
-        }
 
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
         customNavigationBackButton = backButton
         customNavigationTitleLabel = titleLabel
         customNavigationCapsuleView = capsuleView
+        isUsingHostCapsule = usesHostCapsule
     }
 
     private func makeCapsuleButton() -> UIView {
@@ -579,10 +588,13 @@ public class DMPPageController: UIViewController {
         customNavigationTitleLabel?.textColor = textColor
         updateCustomBackButton(darkStyle: darkStyle)
         updateCustomCapsuleButton(darkStyle: darkStyle)
-
-        let frontColor = darkStyle ? "#ffffff" : "#000000"
-        if let colorApplicable = customNavigationCapsuleView as? DMPNavigationBarColorApplicable {
-            colorApplicable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: nil)
+        if let capsuleView = customNavigationCapsuleView {
+            let style = DMPPageCapsuleStyle(
+                foregroundColor: textColor,
+                backgroundColor: backgroundColor,
+                usesLightForeground: darkStyle
+            )
+            pageCapsuleProvider?.updateCapsuleView(capsuleView, style: style)
         }
     }
 
@@ -610,6 +622,9 @@ public class DMPPageController: UIViewController {
     }
 
     private func updateCustomCapsuleButton(darkStyle: Bool) {
+        guard !isUsingHostCapsule else {
+            return
+        }
         if darkStyle {
             customNavigationCapsuleView?.backgroundColor = UIColor(white: 0.2, alpha: 0.6)
             customNavigationCapsuleView?.layer.borderColor = UIColor(white: 1, alpha: 0.25).cgColor
@@ -629,12 +644,6 @@ public class DMPPageController: UIViewController {
 
     @objc private func capsuleMoreButtonTapped() {
         showMiniProgramMenu()
-    }
-
-    /// 关闭整个小程序：一次性移除所有小程序 VC，动画完成后 destroy app。
-    /// 内置胶囊和宿主 overlay 都调这个方法。
-    public func closeMiniProgram() {
-        capsuleCloseButtonTapped()
     }
 
     @objc private func capsuleCloseButtonTapped() {
@@ -981,10 +990,6 @@ public class DMPPageController: UIViewController {
     }
 
     // Get WebView instance
-    public func getApp() -> DMPApp? {
-        return app
-    }
-
     public func getWebView() -> DMPWebview {
         return webview
     }
