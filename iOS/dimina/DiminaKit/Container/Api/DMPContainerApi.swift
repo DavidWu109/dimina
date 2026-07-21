@@ -79,6 +79,7 @@ public class DMPContainerApi: NSObject {
         _ = ImageAPI(app: app)
         _ = AudioAPI(app: app)
         _ = VideoAPI(app: app)
+        _ = CanvasAPI(app: app)
         _ = FileAPI(app: app)
         _ = FileSystemAPI(app: app)
         _ = MenuAPI(app: app)
@@ -101,7 +102,6 @@ public class DMPContainerApi: NSObject {
         DMPLog.bridge.info(
             "built-in APIs registered, bridgeHandlerMap=\(builtInMethods.count) keys=\(sortedKeys)"
         )
-
         return DMPContainerApi(app: app)
     }
     
