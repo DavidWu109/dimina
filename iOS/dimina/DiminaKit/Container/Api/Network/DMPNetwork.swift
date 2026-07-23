@@ -99,14 +99,15 @@ class DMPNetwork {
         
         // 使用Alamofire发送请求
         AF.request(request)
-            .validate()
             .responseData { response in
                 // 记录网络请求过程信息（可以扩展更多指标）
                 let profile = ["timestamp": Date().timeIntervalSince1970]
                 
                 switch response.result {
                 case .success(let data):
-                    DMPEngineLog.writeToLogFile("✅ [DMPNetwork] request OK url=\(url) status=\(response.response?.statusCode ?? -1) size=\(data.count)")
+                    // wx.request treats every received HTTP response as success,
+                    // including 4xx/5xx. Only transport failures enter `fail`.
+                    DMPEngineLog.writeToLogFile("✅ [DMPNetwork] request RESPONSE url=\(url) status=\(response.response?.statusCode ?? -1) size=\(data.count)")
                     // 提取响应头
                     let responseHeaders = response.response?.allHeaderFields as? [String: String] ?? [:]
                     
@@ -281,4 +282,4 @@ class DMPNetwork {
             complete()
         }
     }
-} 
+}
