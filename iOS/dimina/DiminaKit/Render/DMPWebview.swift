@@ -135,8 +135,28 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
 
     private func injectRenderBridgeBootstrapScript() {
+        let canvasImageScheme = CanvasImageURLSchemeHandler.scheme
         let bootstrapScript = WKUserScript(source: """
         (function() {
+            if (!window.__diminaResolveCanvasImageSource) {
+                Object.defineProperty(window, '__diminaResolveCanvasImageSource', {
+                    configurable: false,
+                    enumerable: false,
+                    writable: false,
+                    value: function(source) {
+                        try {
+                            var url = new URL(String(source), document.baseURI);
+                            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                                return source;
+                            }
+                            return '\(canvasImageScheme)://proxy?url=' + encodeURIComponent(url.href);
+                        } catch (_) {
+                            return source;
+                        }
+                    }
+                });
+            }
+
             var bridge = window.DiminaRenderBridge = window.DiminaRenderBridge || {};
             if (bridge.__diminaOnMessageBuffered) {
                 return;

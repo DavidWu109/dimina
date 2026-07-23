@@ -963,6 +963,38 @@ describe('runtime template components', () => {
 		expect(gl.compileShader).toHaveBeenCalledWith(shader)
 	})
 
+	it('uses a host canvas image resolver without changing non-host runtimes', () => {
+		const remoteURL = 'https://cdn.example.com/avatar.png?size=400'
+		expect(runtime.resolveCanvasImageSource(remoteURL)).toBe(remoteURL)
+
+		const resolver = vi.fn(source => `diminacanvasimage://proxy?url=${encodeURIComponent(source)}`)
+		globalThis.__diminaResolveCanvasImageSource = resolver
+		const OriginalImage = globalThis.Image
+		globalThis.Image = class {
+			set src(value) {
+				this.loadedSource = value
+			}
+		}
+
+		try {
+			runtime.canvasResources.clear()
+			runtime.executeCanvasOperation({}, {
+				op: 'imageSetSrc',
+				imageId: 'remote-image',
+				src: remoteURL,
+			}, 'canvas-bridge')
+
+			expect(runtime.getCanvasResource('remote-image').loadedSource).toBe(
+				`diminacanvasimage://proxy?url=${encodeURIComponent(remoteURL)}`,
+			)
+			expect(resolver).toHaveBeenCalledWith(remoteURL)
+		}
+		finally {
+			globalThis.Image = OriginalImage
+			delete globalThis.__diminaResolveCanvasImageSource
+		}
+	})
+
 	it('returns real webgl creation, diagnostics, errors and typed-array feedback', () => {
 		runtime.canvasNodes.clear()
 		runtime.canvasResources.clear()

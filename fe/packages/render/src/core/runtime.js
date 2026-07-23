@@ -1551,10 +1551,23 @@ class Runtime {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
 			image = new Image()
-			image.crossOrigin = "anonymous";
+			image.crossOrigin = 'anonymous'
 			this.setCanvasResource(imageId, image)
 		}
 		return image
+	}
+
+	resolveCanvasImageSource(src) {
+		const resolver = globalThis.__diminaResolveCanvasImageSource
+		if (typeof resolver !== 'function') {
+			return src
+		}
+		try {
+			return resolver(src)
+		}
+		catch {
+			return src
+		}
 	}
 
 	executeCanvasOperation(node, operation, bridgeId) {
@@ -1740,7 +1753,7 @@ class Runtime {
 						errMsg: `createImage:fail ${operation.src}`,
 					})
 				}
-				image.src = operation.src
+				image.src = this.resolveCanvasImageSource(operation.src)
 				break
 			}
 			case 'getImageData': {
@@ -2097,7 +2110,7 @@ class Runtime {
 			image.crossOrigin = 'anonymous'
 			image.onload = () => resolve(image)
 			image.onerror = () => reject(new Error(`Failed to load image: ${src}`))
-			image.src = src
+			image.src = this.resolveCanvasImageSource(src)
 		})
 	}
 
