@@ -351,13 +351,17 @@ public class DMPNavigator: NSObject {
         return pageRecords.last
     }
 
-    /// The route currently visible to the developer. Tab switches do not push a
-    /// new page record, so consult the tab container's active WebView first.
+    /// The route currently visible to the developer. Inspect only the top view
+    /// controller: a tab container may still exist lower in the stack while a
+    /// detail page is visible above it.
     func getCurrentRoute() -> (path: String, query: [String: Any]?)? {
-        if let container = navigationController?.viewControllers.last(
-            where: { $0 is DMPTabBarContainerController }
-        ) as? DMPTabBarContainerController,
+        if let container = navigationController?.topViewController
+            as? DMPTabBarContainerController,
            let webview = container.currentPageController?.getWebView() {
+            return (webview.getPagePath(), webview.getQuery())
+        }
+        if let pageController = navigationController?.topViewController as? DMPPageController {
+            let webview = pageController.getWebView()
             return (webview.getPagePath(), webview.getQuery())
         }
         guard let record = pageRecords.last else { return nil }
