@@ -125,7 +125,13 @@ public final class DMPDeveloperPreviewClient {
                     )
                 }
 
-                if event.styleOnly {
+                // The manifest endpoint may advance again between the wait
+                // response and this fetch. In that case the event's styleOnly
+                // flag no longer describes the fetched snapshot, so use the
+                // safe full-update path instead of potentially skipping JS.
+                let canApplyStyleOnly = event.styleOnly
+                    && updatedManifest.revision == event.revision
+                if canApplyStyleOnly {
                     try await Self.installStyles(
                         updatedManifest,
                         manifestURL: session.manifestURL,
