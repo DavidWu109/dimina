@@ -25,6 +25,8 @@ public class NativeComponentAPI: DMPContainerApi {
         "translateMarker",
         "addArc",
         "removeArc",
+        "calculateRoute",
+        "openNavigation",
     ]
 
     public override init(app: DMPApp? = nil) {
@@ -300,6 +302,9 @@ private enum DMPIOSMapError: LocalizedError {
     case mapNotFound(String)
     case invalidCoordinate
     case markerNotFound(String)
+    case routeRequiresTwoPoints
+    case routeUnavailable
+    case navigationUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -309,6 +314,12 @@ private enum DMPIOSMapError: LocalizedError {
             return "invalid coordinate"
         case let .markerNotFound(id):
             return "marker \(id) not found"
+        case .routeRequiresTwoPoints:
+            return "route requires at least two coordinates"
+        case .routeUnavailable:
+            return "route is unavailable"
+        case .navigationUnavailable:
+            return "external navigation is unavailable"
         }
     }
 }
@@ -348,6 +359,7 @@ private final class DMPIOSNativeMapComponent: NSObject, MKMapViewDelegate, UIGes
     private var centerOffset = CGPoint.zero
     private var hasRendered = false
     private var isApplyingProgrammaticRegion = false
+    private var activeDirections: [MKDirections] = []
 
     init(id: String, host: DMPIOSNativeComponentHost) {
         self.id = id
@@ -391,6 +403,8 @@ private final class DMPIOSNativeMapComponent: NSObject, MKMapViewDelegate, UIGes
     }
 
     func release() {
+        activeDirections.forEach { $0.cancel() }
+        activeDirections.removeAll()
         view.delegate = nil
         view.removeAnnotations(propertyAnnotations)
         view.removeAnnotations(Array(contextAnnotations.values))
@@ -455,6 +469,10 @@ private final class DMPIOSNativeMapComponent: NSObject, MKMapViewDelegate, UIGes
         case "removeArc":
             removeArc(params)
             completion(.success(["errMsg": "removeArc:ok"]))
+        case "calculateRoute":
+            calculateRoute(params, completion: completion)
+        case "openNavigation":
+            openNavigation(params, completion: completion)
         default:
             completion(.failure(DMPIOSMapError.mapNotFound(id)))
         }
@@ -717,6 +735,133 @@ private final class DMPIOSNativeMapComponent: NSObject, MKMapViewDelegate, UIGes
         }
     }
 
+    private func calculateRoute(
+        _ params: DMPMap,
+        completion: @escaping (Result<[String: Any], Error>) -> Void
+    ) {
+        let points = coordinates(from: params.get("points"))
+        guard points.count >= 2 else {
+            completion(.failure(DMPIOSMapError.routeRequiresTwoPoints))
+            return
+        }
+
+        activeDirections.forEach { $0.cancel() }
+        activeDirections.removeAll()
+
+        let transportType = mapTransportType(params.getString(key: "transportType"))
+        var segmentPayloads: [[String: Any]] = []
+        var routePoints: [[String: Any]] = []
+        var totalDistance: CLLocationDistance = 0
+        var totalDuration: TimeInterval = 0
+
+        func calculateSegment(_ index: Int) {
+            guard index < points.count - 1 else {
+                self.activeDirections.removeAll()
+                completion(.success([
+                    "errMsg": "calculateRoute:ok",
+                    "provider": "mapkit",
+                    "transportType": mapTransportTypeName(transportType),
+                    "distance": totalDistance,
+                    "duration": totalDuration,
+                    "points": routePoints,
+                    "segments": segmentPayloads,
+                ]))
+                return
+            }
+
+            let request = MKDirections.Request()
+            request.source = MKMapItem(placemark: MKPlacemark(coordinate: points[index]))
+            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: points[index + 1]))
+            request.requestsAlternateRoutes = false
+            request.transportType = transportType
+            let directions = MKDirections(request: request)
+            self.activeDirections.append(directions)
+            directions.calculate { [weak self] response, error in
+                guard let self else { return }
+                self.activeDirections.removeAll { $0 === directions }
+                guard error == nil, let route = response?.routes.first else {
+                    self.activeDirections.forEach { $0.cancel() }
+                    self.activeDirections.removeAll()
+                    completion(.failure(error ?? DMPIOSMapError.routeUnavailable))
+                    return
+                }
+
+                let segmentPoints = mapCoordinates(route.polyline)
+                if routePoints.isEmpty {
+                    routePoints.append(contentsOf: segmentPoints)
+                } else {
+                    routePoints.append(contentsOf: segmentPoints.dropFirst())
+                }
+                totalDistance += route.distance
+                totalDuration += route.expectedTravelTime
+                segmentPayloads.append([
+                    "index": index,
+                    "distance": route.distance,
+                    "duration": route.expectedTravelTime,
+                    "transportType": mapTransportTypeName(transportType),
+                    "points": segmentPoints,
+                ])
+                calculateSegment(index + 1)
+            }
+        }
+
+        calculateSegment(0)
+    }
+
+    private func openNavigation(
+        _ params: DMPMap,
+        completion: @escaping (Result<[String: Any], Error>) -> Void
+    ) {
+        guard let destination = coordinate(from: params.toDictionary()) else {
+            completion(.failure(DMPIOSMapError.invalidCoordinate))
+            return
+        }
+        let name = params.getString(key: "name") ?? params.getString(key: "title") ?? "目的地"
+        let provider = params.getString(key: "provider")?.lowercased() ?? "apple"
+
+        if provider == "amap", let url = amapNavigationURL(destination: destination, name: name) {
+            UIApplication.shared.open(url, options: [:]) { success in
+                if success {
+                    completion(.success(["errMsg": "openNavigation:ok", "provider": "amap"]))
+                } else {
+                    self.openAppleNavigation(destination: destination, name: name, completion: completion)
+                }
+            }
+            return
+        }
+        openAppleNavigation(destination: destination, name: name, completion: completion)
+    }
+
+    private func openAppleNavigation(
+        destination: CLLocationCoordinate2D,
+        name: String,
+        completion: @escaping (Result<[String: Any], Error>) -> Void
+    ) {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        item.name = name
+        let success = item.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving,
+        ])
+        if success {
+            completion(.success(["errMsg": "openNavigation:ok", "provider": "apple"]))
+        } else {
+            completion(.failure(DMPIOSMapError.navigationUnavailable))
+        }
+    }
+
+    private func amapNavigationURL(destination: CLLocationCoordinate2D, name: String) -> URL? {
+        var components = URLComponents(string: "iosamap://path")
+        components?.queryItems = [
+            URLQueryItem(name: "sourceApplication", value: "Dimina"),
+            URLQueryItem(name: "dlat", value: String(destination.latitude)),
+            URLQueryItem(name: "dlon", value: String(destination.longitude)),
+            URLQueryItem(name: "dname", value: name),
+            URLQueryItem(name: "dev", value: "0"),
+            URLQueryItem(name: "t", value: "0"),
+        ]
+        return components?.url
+    }
+
     private func currentScale() -> Double {
         let longitudeDelta = max(view.region.span.longitudeDelta, 0.000_001)
         return min(max(log2(360 / longitudeDelta), 3), 22)
@@ -839,6 +984,37 @@ private func mapDouble(_ value: Any?) -> Double? {
     if let value = value as? NSNumber { return value.doubleValue }
     if let value = value as? String { return Double(value) }
     return nil
+}
+
+private func mapTransportType(_ value: String?) -> MKDirectionsTransportType {
+    switch value?.lowercased() {
+    case "walking":
+        return .walking
+    case "transit":
+        return .transit
+    default:
+        return .automobile
+    }
+}
+
+private func mapTransportTypeName(_ value: MKDirectionsTransportType) -> String {
+    if value == .walking { return "walking" }
+    if value == .transit { return "transit" }
+    return "driving"
+}
+
+private func mapCoordinates(_ polyline: MKPolyline) -> [[String: Any]] {
+    var coordinates = [CLLocationCoordinate2D](
+        repeating: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+        count: polyline.pointCount
+    )
+    coordinates.withUnsafeMutableBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress else { return }
+        polyline.getCoordinates(baseAddress, range: NSRange(location: 0, length: polyline.pointCount))
+    }
+    return coordinates.map { coordinate in
+        ["latitude": coordinate.latitude, "longitude": coordinate.longitude]
+    }
 }
 
 private func mapBool(_ value: Any?) -> Bool? {
