@@ -53,6 +53,50 @@ public class DMPRender: DMPWebViewDelegate {
         webviewsMap[webViewId]?.executeJavaScript(script, completionHandler: completionHandler)
     }
 
+    /// Reload mini-app CSS links in place after QDMP atomically replaces the
+    /// corresponding files. Runtime SDK styles (`/assets/*`) are deliberately
+    /// excluded so only the app's `app.css` and page CSS are touched.
+    @MainActor
+    public func refreshDeveloperStyles(revision: Int) {
+        let appId = app?.getAppId() ?? ""
+        guard !appId.isEmpty,
+              let appIdData = try? JSONEncoder().encode(appId),
+              let appIdJSON = String(data: appIdData, encoding: .utf8) else {
+            return
+        }
+        let script = """
+        (function() {
+          var appId = \(appIdJSON);
+          var prefix = '/' + appId + '/';
+          var links = Array.prototype.slice.call(
+            document.querySelectorAll('link[rel="stylesheet"]')
+          ).filter(function(link) {
+            try { return new URL(link.href).pathname.indexOf(prefix) === 0; }
+            catch (_) { return false; }
+          });
+          links.forEach(function(link) {
+            var next = link.cloneNode(false);
+            var url = new URL(link.href);
+            url.searchParams.set('__dmp_preview', '\(revision)');
+            next.href = url.toString();
+            next.onload = function() { link.remove(); };
+            next.onerror = function() { next.remove(); };
+            link.parentNode.insertBefore(next, link.nextSibling);
+          });
+          return links.length;
+        })();
+        """
+        for webview in webviewsMap.values where webview.poolState.canInteract {
+            webview.executeJavaScript(script) { _, error in
+                if let error {
+                    DMPLog.render.warn(
+                        "developer style refresh failed: \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+
     // Register JavaScript method to allow Native to listen to JavaScript calls
     public func registerJSHandler(webViewId: Int, handlerName: String, callback: @escaping (Any) -> Void) {
         webviewsMap[webViewId]?.registerJSHandler(handlerName: handlerName, callback: callback)

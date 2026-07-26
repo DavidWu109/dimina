@@ -26,6 +26,7 @@ public class DMPApp {
 
     private var isLaunching = false
     private var isDestroyed = false
+    private var developerPreviewClient: DMPDeveloperPreviewClient?
     /// Host API registrations belong to the app instance, not to one container
     /// launch. `appWithConfig` may return the same app when a mini app is opened
     /// again, while every launch rebuilds `containerApi`.
@@ -57,7 +58,8 @@ public class DMPApp {
         }
         showLoading()
 
-        await Self.prepareBundleResources(appId: appId)
+        let shouldPrepareBundledApp = developerPreviewClient == nil
+        await Self.prepareBundleResources(appId: appId, prepareApp: shouldPrepareBundledApp)
 
         initBundle()
         DMPLog.app.info("initBundle done")
@@ -88,6 +90,7 @@ public class DMPApp {
 
         hideLoading()
         DMPLog.app.info("launch finished")
+        developerPreviewClient?.start()
     }
 
     public func initService() async {
@@ -183,17 +186,21 @@ public class DMPApp {
         DMPLog.bundle.debug("initBundle, appId=\(appId)")
         DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         DMPResourceManager.prepareSdk()
-        DMPResourceManager.prepareApp(appId: appId)
+        if developerPreviewClient == nil {
+            DMPResourceManager.prepareApp(appId: appId)
+        }
         // 如果有 versionCode，也确保版本目录的结构
         if let versionCode = appConfig?.versionCode {
             DMPSandboxManager.initBundleDirectoryForApp(appId: appId + "/\(versionCode)")
         }
     }
 
-    private static func prepareBundleResources(appId: String) async {
+    private static func prepareBundleResources(appId: String, prepareApp: Bool) async {
         await Task.detached(priority: .userInitiated) {
             DMPResourceManager.prepareSdk()
-            DMPResourceManager.prepareApp(appId: appId)
+            if prepareApp {
+                DMPResourceManager.prepareApp(appId: appId)
+            }
             DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         }.value
     }
@@ -522,13 +529,32 @@ public class DMPApp {
 
     @MainActor
     public func applyUpdate() async {
+        let currentPage = navigator?.getCurrentRoute()
         let launchConfig = currentLaunchConfig
         service?.destroy()
         await initService()
         await loadBundle()
 
-        let entryPath = launchConfig?.appEntryPath ?? bundleAppConfig?.entryPagePath ?? ""
-        await navigator?.relaunch(to: entryPath, query: launchConfig?.query, animated: false)
+        let entryPath = currentPage?.path
+            ?? launchConfig?.appEntryPath
+            ?? bundleAppConfig?.entryPagePath
+            ?? ""
+        let query = currentPage?.query ?? launchConfig?.query
+        await navigator?.relaunch(to: entryPath, query: query, animated: false)
+    }
+
+    /// Enables the authenticated QDMP preview session prepared before launch.
+    /// Debug hosts call this before `launch`; release hosts never opt in.
+    public func configureDeveloperPreview(_ session: DMPDeveloperPreviewSession) {
+        developerPreviewClient?.stop()
+        developerPreviewClient = DMPDeveloperPreviewClient.attach(session: session, to: self)
+    }
+
+    /// Replaces only live mini-app stylesheet links. The service VM, page
+    /// instances, navigation stack, form controls and scroll positions survive.
+    @MainActor
+    public func applyDeveloperStyleUpdate(revision: Int) {
+        render?.refreshDeveloperStyles(revision: revision)
     }
 
     /// 注册第三方扩展 bridge 模块。
@@ -557,6 +583,8 @@ public class DMPApp {
         }
         isDestroyed = true
         DMPLog.app.info("destroy, appId=\(appId)")
+        developerPreviewClient?.stop()
+        developerPreviewClient = nil
 
         BluetoothAPIManager.shared.clearApp(appId)
         LocalNetworkAPIManager.shared.clearApp(appId)

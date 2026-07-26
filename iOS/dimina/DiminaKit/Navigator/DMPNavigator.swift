@@ -351,6 +351,19 @@ public class DMPNavigator: NSObject {
         return pageRecords.last
     }
 
+    /// The route currently visible to the developer. Tab switches do not push a
+    /// new page record, so consult the tab container's active WebView first.
+    func getCurrentRoute() -> (path: String, query: [String: Any]?)? {
+        if let container = navigationController?.viewControllers.last(
+            where: { $0 is DMPTabBarContainerController }
+        ) as? DMPTabBarContainerController,
+           let webview = container.currentPageController?.getWebView() {
+            return (webview.getPagePath(), webview.getQuery())
+        }
+        guard let record = pageRecords.last else { return nil }
+        return (record.pagePath, record.query)
+    }
+
     /// 给外部容器（如 DMPTabBarContainerController）追加 pageRecord 用。
     public func appendPageRecord(_ record: DMPPageRecord) {
         pageRecords.append(record)
