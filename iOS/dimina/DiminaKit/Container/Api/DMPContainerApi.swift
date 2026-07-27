@@ -93,6 +93,7 @@ public class DMPContainerApi: NSObject {
         _ = KeyboardAPI(app: app)
         _ = NetworkTypeAPI(app: app)
         _ = PhoneAPI(app: app)
+        _ = ScreenAPI(app: app)
         _ = VibrateAPI(app: app)
         _ = DeviceAPI(app: app)
         _ = ScanAPI(app: app)
