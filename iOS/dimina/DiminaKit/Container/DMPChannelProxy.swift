@@ -33,24 +33,20 @@ class DMPChannelProxy {
             ])
 
             if type == "serviceResourceLoaded" || type == "renderResourceLoaded" {
-                let resourceType: ResourceLoadType =
-                    type == "serviceResourceLoaded" ? .serviceLoaded : .renderLoaded
-                app.container!.hasLoadResource(webViewId: webViewId, type: resourceType)
-                let loaded = app.container!.isResourceLoaded(webViewId: webViewId)
-                DMPLog.bridge.info("\(type) bridgeId=\(webViewId) allLoaded=\(loaded)")
-
-                if loaded {
-                    body.set("scene", DMPScene.fromMainEntry.rawValue)
-                    transMsg.set("type", "resourceLoaded")
-
-                    Task { @MainActor in
-                        await app.service?.postMessage(data: transMsg)
-                    }
-                    DMPLog.bridge.info("→ service resourceLoaded bridgeId=\(webViewId)")
-                    return DMPMap()
-                } else {
+                guard webViewId != 0, webview != nil else {
+                    DMPLog.bridge.warn("ignore stale \(type) bridgeId=\(webViewId)")
                     return DMPMap()
                 }
+                let resourceType: ResourceLoadType =
+                    type == "serviceResourceLoaded" ? .serviceLoaded : .renderLoaded
+                body.set("scene", DMPScene.fromMainEntry.rawValue)
+                transMsg.set("type", "resourceLoaded")
+                app.container?.recordResourceLoaded(
+                    webViewId: webViewId,
+                    type: resourceType,
+                    resourceLoadedMessage: transMsg
+                )
+                return DMPMap()
             } else {
                 Task { @MainActor in
                     await app.service?.postMessage(data: transMsg)

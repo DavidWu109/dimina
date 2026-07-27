@@ -117,7 +117,7 @@
 
 主要文件：
 
-- `iOS/dimina/DiminaKit/Container/DMPPageOverlayProvider.swift`
+- `iOS/dimina/DiminaKit/Container/DMPPageCapsuleProvider.swift`
 - `iOS/dimina/DiminaKit/Container/DMPPageController.swift`
 - `iOS/dimina/DiminaKit/Container/UI/DMPTabBarContainerController.swift`
 - `iOS/dimina/DiminaKit/Container/UI/DMPTabBarView.swift`
@@ -129,13 +129,15 @@
 
 修改内容：
 
-- 增加 `DMPPageOverlayProvider`，允许宿主把胶囊按钮等视图覆盖到小程序页面；
-- 增加 `DMPNavigationBarColorApplicable`，让 `wx.setNavigationBarColor` 同步宿主 overlay 的前景色和背景色；
+- 增加 App 级 `DMPPageCapsuleProvider`，允许宿主在 launch 前替换内置胶囊；
+- Provider 只接收页面信息快照与关闭动作，不持有 `DMPPageController`、`DMPApp` 或 WebView；
+- Dimina 固定胶囊位置和尺寸，确保原生布局与 `getMenuButtonBoundingClientRect` 一致；
+- `wx.setNavigationBarColor` 通过 `DMPPageCapsuleStyle` 同步宿主胶囊样式；
 - 自建 UIKit TabBar 容器和视图，支持图标、选中态、隐藏、badge 和 red dot；
 - 扩展 `app-config.json` 的 window/tabBar 数据模型并规范化页面路径；
 - `switchTab`、push、back、redirect 等导航操作同步页面记录和生命周期；
 - 对暗色模式、导航栏样式缓存和宿主胶囊关闭行为做了适配；
-- 本轮同步吸收上游新的菜单按钮几何计算，但保留宿主 overlay 协议。
+- 本轮同步吸收上游新的菜单按钮几何计算，并把宿主扩展收窄为 capsule provider。
 
 目的：
 
@@ -155,8 +157,8 @@
 主要文件：
 
 - `iOS/dimina/DiminaKit/Container/Api/DMPContainerApi.swift`
+- `iOS/dimina/DiminaKit/Container/Api/DMPApiHandler.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Base/BaseAPI.swift`
-- `iOS/dimina/DiminaKit/Container/Api/Base/LoginAPI.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Base/FileSystemAPI.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Device/DeviceAPI.swift`
 - `iOS/dimina/DiminaKit/Container/Api/Media/AudioAPI.swift`
@@ -167,10 +169,12 @@
 修改内容：
 
 - 大部分原有内置 API 从 `@BridgeMethod` property wrapper 改成在 `init` 中显式 `register()`；
-- 保留公开的 `BridgeMethod` 和外部 API 类型注册入口，供 EchoWebKit 等外部模块扩展；
+- 内置 API 仍由静态表承载，宿主 API 改为 `DMPApp.registerApi(_:)` 按 App 实例注册；
+- 宿主 handler 通过 `DMPBaseApiHandler` 显式声明方法，冲突默认拒绝，也可显式 `.replace`；
 - `DMPContainerApi.create()` 显式实例化并注册所有内置 API；
-- 将已注册 API 名称和自定义 namespace 注入 service JS；
-- 增加宿主 `DMPLoginProvider`，由千岛侧实现 `wx.login`；
+- 将当前 App 的 API 名称和自定义 namespace 注入 service JS；
+- `wx.login` 由 EchoWebKit 的业务 handler 注入，Dimina 不再持有登录 provider；
+- 原始页面 URL 在 `DMPPageRoute` 中统一拆成 `pagePath + query`，WebView 只接收规范化后的路径；
 - 增加文件系统、设备信息、音频、TabBar 和 UI 反馈等业务需要的 API；
 - 在 service 启动阶段为 Taro 和部分微信同步 API 注入兼容层；
 - Storage Sync API 同时接受数组参数和对象参数，并按 `appId` 隔离存储。
@@ -178,7 +182,7 @@
 目的：
 
 - 避免依赖 property wrapper 初始化副作用注册全局 handler，减少注册时序不确定和 `swiftc` 问题；
-- 允许公司其他模块继续注入自定义 API；
+- 允许公司其他模块注入自定义 API，且不会污染其他小程序实例；
 - 补齐线上小程序和 Taro 应用实际调用、但上游当时未覆盖的 API；
 - 防止某个小程序读取到另一个小程序的 storage；
 - 避免缺失方法直接抛 `TypeError` 并中断首屏渲染。
@@ -188,6 +192,7 @@
 - 新上游 API 仍有部分使用 `@BridgeMethod`，当前处于两种注册方式共存状态；
 - 新增 API 时必须确认 `DMPContainerApi.create()` 已实例化对应类型；
 - 不要把 fork 内置 API 整体换回 wrapper 模式；
+- 宿主 API 必须在 `DMPApp.launch` 前注册；仅在明确覆盖内置实现时使用 `.replace`；
 - JS polyfill 只应作为 Native API 缺口的兼容层，不能无验证地继续堆叠空实现。
 
 ### 3.5 WebView 复用、生命周期与白屏恢复

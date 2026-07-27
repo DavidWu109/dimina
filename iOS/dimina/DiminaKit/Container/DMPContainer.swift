@@ -18,7 +18,14 @@ enum ResourceLoadType: Int {
 public class DMPContainer {
     // MARK: - Properties
     private weak var app: DMPApp?
-    private var loadStatusMap: [Int: ResourceLoadType] = [:]
+    private struct PageStartupState {
+        var resourceStatus: ResourceLoadType = .initial
+        var isRenderHostReady = false
+        var hasCommittedFirstRender = false
+        var pendingResourceLoadedMessage: DMPMap?
+    }
+
+    private var pageStartupStates: [Int: PageStartupState] = [:]
     var isNavigating: Bool = false
 
     /// 宿主注册的第三方扩展模块，key = moduleName
@@ -55,14 +62,94 @@ public class DMPContainer {
     }
 
     // MARK: - Resource Management
-    func hasLoadResource(webViewId: Int, type: ResourceLoadType) {
-        let status = loadStatusMap[webViewId] ?? .initial
-        let newRawValue = status.rawValue | type.rawValue
-        loadStatusMap[webViewId] = ResourceLoadType(rawValue: newRawValue) ?? .initial
+    func recordResourceLoaded(
+        webViewId: Int,
+        type: ResourceLoadType,
+        resourceLoadedMessage: DMPMap
+    ) {
+        performStartupStateUpdate { [weak self] in
+            guard let self = self,
+                  self.app?.render?.getWebView(byId: webViewId) != nil else {
+                return
+            }
+
+            var state = self.pageStartupStates[webViewId] ?? PageStartupState()
+            let newRawValue = state.resourceStatus.rawValue | type.rawValue
+            state.resourceStatus = ResourceLoadType(rawValue: newRawValue) ?? .initial
+            if state.resourceStatus == .allLoaded && !state.hasCommittedFirstRender {
+                state.pendingResourceLoadedMessage = resourceLoadedMessage
+            }
+            self.pageStartupStates[webViewId] = state
+
+            DMPLog.bridge.info(
+                "\(type == .serviceLoaded ? "service" : "render")ResourceLoaded "
+                    + "bridgeId=\(webViewId) allLoaded=\(state.resourceStatus == .allLoaded)"
+            )
+            self.commitFirstRenderIfReady(webViewId: webViewId)
+        }
     }
 
-    func isResourceLoaded(webViewId: Int) -> Bool {
-        return loadStatusMap[webViewId] == .allLoaded
+    func setRenderHostReady(webViewId: Int, isReady: Bool) {
+        performStartupStateUpdate { [weak self] in
+            guard let self = self,
+                  self.app?.render?.getWebView(byId: webViewId) != nil else {
+                return
+            }
+
+            var state = self.pageStartupStates[webViewId] ?? PageStartupState()
+            guard state.isRenderHostReady != isReady else {
+                return
+            }
+            state.isRenderHostReady = isReady
+            self.pageStartupStates[webViewId] = state
+            DMPLog.render.info("renderHostReady bridgeId=\(webViewId) ready=\(isReady)")
+            self.commitFirstRenderIfReady(webViewId: webViewId)
+        }
+    }
+
+    func restartPageStartup(webViewId: Int) {
+        performStartupStateUpdate { [weak self] in
+            guard let self = self else { return }
+            var state = self.pageStartupStates[webViewId] ?? PageStartupState()
+            state.resourceStatus = .initial
+            state.hasCommittedFirstRender = false
+            state.pendingResourceLoadedMessage = nil
+            self.pageStartupStates[webViewId] = state
+            DMPLog.render.info("restart page startup bridgeId=\(webViewId)")
+        }
+    }
+
+    func clearPageStartupState(webViewId: Int) {
+        performStartupStateUpdate { [weak self] in
+            self?.pageStartupStates.removeValue(forKey: webViewId)
+        }
+    }
+
+    private func commitFirstRenderIfReady(webViewId: Int) {
+        guard var state = pageStartupStates[webViewId],
+              state.resourceStatus == .allLoaded,
+              state.isRenderHostReady,
+              !state.hasCommittedFirstRender,
+              let message = state.pendingResourceLoadedMessage else {
+            return
+        }
+
+        state.hasCommittedFirstRender = true
+        state.pendingResourceLoadedMessage = nil
+        pageStartupStates[webViewId] = state
+        DMPLog.bridge.info("→ service resourceLoaded bridgeId=\(webViewId) hostReady=true")
+
+        Task { @MainActor [weak self] in
+            await self?.app?.service?.postMessage(data: message)
+        }
+    }
+
+    private func performStartupStateUpdate(_ update: @escaping () -> Void) {
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
     }
 
     private func createResourceMessage(webViewId: Int, pagePath: String) -> DMPMap {
@@ -165,7 +252,7 @@ public class DMPContainer {
         )
 
         // 1. 精确命中已注册的标准 API
-        if let handler = DMPContainerApi.getHandler(for: methodName) {
+        if let handler = app.containerApi?.getHandler(for: methodName) {
             return handler(param, env, callback)
         }
 
@@ -199,8 +286,17 @@ public class DMPContainer {
             return DMPNoneResult()
         }
 
-        DMPLogger.debug("Bridge invoke error: 未找到方法: \(methodName)")
-        return DMPSyncResult(["error": "未找到方法: \(methodName)"])
+        let errMsg = "\(methodName):fail API not found"
+        DMPLogger.debug("Bridge invoke error: \(errMsg)")
+        if param.isAsync {
+            DMPContainerApi.invokeFailure(
+                callback: callback,
+                param: nil,
+                errMsg: errMsg
+            )
+            return DMPAsyncResult()
+        }
+        return DMPSyncResult(["errMsg": errMsg])
     }
 
     /// 处理 extOnBridge：启动持续订阅，保存取消函数

@@ -18,6 +18,7 @@ const groupB = [
 describe('runtime template components', () => {
 	let dom
 	let runtime
+	let renderMessage
 	let applyWxmlStyleProperty
 	let normalizeStaticBooleanAttributes
 
@@ -36,6 +37,7 @@ describe('runtime template components', () => {
 
 		const runtimeModule = await import('../src/core/runtime.js')
 		runtime = runtimeModule.default
+		renderMessage = (await import('../src/core/message.js')).default
 		applyWxmlStyleProperty = runtimeModule.applyWxmlStyleProperty
 		normalizeStaticBooleanAttributes = runtimeModule.normalizeStaticBooleanAttributes
 	})
@@ -961,6 +963,38 @@ describe('runtime template components', () => {
 		expect(gl.compileShader).toHaveBeenCalledWith(shader)
 	})
 
+	it('uses a host canvas image resolver without changing non-host runtimes', () => {
+		const remoteURL = 'https://cdn.example.com/avatar.png?size=400'
+		expect(runtime.resolveCanvasImageSource(remoteURL)).toBe(remoteURL)
+
+		const resolver = vi.fn(source => `diminacanvasimage://proxy?url=${encodeURIComponent(source)}`)
+		globalThis.__diminaResolveCanvasImageSource = resolver
+		const OriginalImage = globalThis.Image
+		globalThis.Image = class {
+			set src(value) {
+				this.loadedSource = value
+			}
+		}
+
+		try {
+			runtime.canvasResources.clear()
+			runtime.executeCanvasOperation({}, {
+				op: 'imageSetSrc',
+				imageId: 'remote-image',
+				src: remoteURL,
+			}, 'canvas-bridge')
+
+			expect(runtime.getCanvasResource('remote-image').loadedSource).toBe(
+				`diminacanvasimage://proxy?url=${encodeURIComponent(remoteURL)}`,
+			)
+			expect(resolver).toHaveBeenCalledWith(remoteURL)
+		}
+		finally {
+			globalThis.Image = OriginalImage
+			delete globalThis.__diminaResolveCanvasImageSource
+		}
+	})
+
 	it('returns real webgl creation, diagnostics, errors and typed-array feedback', () => {
 		runtime.canvasNodes.clear()
 		runtime.canvasResources.clear()
@@ -1128,6 +1162,52 @@ describe('runtime template components', () => {
 		runtime.instance.delete(moduleId)
 		runtime.setupData.delete(moduleId)
 		runtime.initializedModules.delete(moduleId)
+	})
+
+	it('exports the current canvas bitmap without resetting its resolution', async () => {
+		const sourceCanvas = document.createElement('canvas')
+		sourceCanvas.width = 966
+		sourceCanvas.height = 300
+		sourceCanvas.getBoundingClientRect = vi.fn(() => ({
+			left: 0,
+			top: 0,
+			right: 965.5,
+			bottom: 300,
+			width: 965.5,
+			height: 300,
+		}))
+
+		const drawImage = vi.fn()
+		const outputCanvas = {
+			width: 0,
+			height: 0,
+			getContext: vi.fn(() => ({ drawImage })),
+			toDataURL: vi.fn(() => 'data:image/png;base64,AAAA'),
+		}
+		const createElement = document.createElement.bind(document)
+		vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => (
+			tagName === 'canvas' ? outputCanvas : createElement(tagName, options)
+		))
+		vi.spyOn(runtime, 'getCanvasElement').mockResolvedValue(sourceCanvas)
+		const invoke = vi.spyOn(renderMessage, 'invoke').mockImplementation(() => {})
+
+		await runtime.canvasToTempFilePath({
+			bridgeId: 2,
+			params: {
+				canvasId: 'posterCanvas',
+				success: 'success_1',
+				fail: 'fail_1',
+				complete: 'complete_1',
+			},
+		})
+
+		expect(sourceCanvas.width).toBe(966)
+		expect(sourceCanvas.height).toBe(300)
+		expect(drawImage).toHaveBeenCalledWith(sourceCanvas, 0, 0, 966, 300, 0, 0, 966, 300)
+		expect(invoke).toHaveBeenCalledWith(expect.objectContaining({
+			type: 'invokeAPI',
+			target: 'container',
+		}))
 	})
 })
 

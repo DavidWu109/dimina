@@ -187,7 +187,7 @@ public enum DMPLog {
             if let handle = try? FileHandle(forWritingTo: url) {
                 handle.seekToEndOfFile()
                 handle.write(data)
-                try? handle.close()
+                try? handle.compatClose()
             } else {
                 try? data.write(to: url)
             }

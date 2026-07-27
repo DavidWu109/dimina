@@ -22,23 +22,22 @@ public class DMPApp {
     public var container: DMPContainer?
     public var containerApi: DMPContainerApi?
 
-    /// Host app provides overlay views (e.g., capsule button) for mini-program pages
-    public var pageOverlayProvider: DMPPageOverlayProvider?
-
-    /// 宿主注入：处理 mini-app 的 wx.login 调用（拿临时 code 等）。
-    /// 不注入时 wx.login 会失败返回 "login:fail no provider"。
-    public var loginProvider: DMPLoginProvider?
-
-    /// 小程序启动完成后的回调（用于引擎自检等）
-    public var onLaunchComplete: (() -> Void)?
+    private(set) var pageCapsuleProvider: DMPPageCapsuleProvider?
 
     private var isLaunching = false
     private var isDestroyed = false
+    private var developerPreviewClient: DMPDeveloperPreviewClient?
+    private var developerDebugClient: DMPDeveloperDebugClient?
+    /// Host API registrations belong to the app instance, not to one container
+    /// launch. `appWithConfig` may return the same app when a mini app is opened
+    /// again, while every launch rebuilds `containerApi`.
+    private var apiRegistrations: [(DMPApiHandler, DMPApiConflictPolicy)] = []
 
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
         self.appId = appConfig.appId
         self.appIndex = appIndex
+        DMPFileUtil.setFileURLScheme(appConfig.fileURLScheme, forAppId: appConfig.appId)
     }
 
     @MainActor
@@ -61,7 +60,8 @@ public class DMPApp {
         }
         showLoading()
 
-        await Self.prepareBundleResources(appId: appId)
+        let shouldPrepareBundledApp = developerPreviewClient == nil && developerDebugClient == nil
+        await Self.prepareBundleResources(appId: appId, prepareApp: shouldPrepareBundledApp)
 
         initBundle()
         DMPLog.app.info("initBundle done")
@@ -69,6 +69,7 @@ public class DMPApp {
         initContainer()
         DMPLog.app.info("initContainer done")
 
+        developerDebugClient?.attachLogSources()
         await initService()
         DMPLog.app.info("initService done")
 
@@ -85,6 +86,7 @@ public class DMPApp {
         }
 
         initRender()
+        developerDebugClient?.attachLogSources()
         DMPLog.app.info("initRender done")
 
         await openPage(launchConfig: launchConfig)
@@ -92,7 +94,8 @@ public class DMPApp {
 
         hideLoading()
         DMPLog.app.info("launch finished")
-        onLaunchComplete?()
+        developerPreviewClient?.start()
+        developerDebugClient?.start()
     }
 
     public func initService() async {
@@ -123,6 +126,59 @@ public class DMPApp {
         return appIndex
     }
 
+    /// Registers host APIs for this mini app.
+    ///
+    /// Register APIs before calling `launch`. Registrations are scoped to this
+    /// `DMPApp` and are released when the app is destroyed.
+    @discardableResult
+    public func registerApi(
+        _ handler: DMPApiHandler,
+        conflictPolicy: DMPApiConflictPolicy = .reject
+    ) -> Bool {
+        guard !isLaunching, !isDestroyed else {
+            DMPLogger.debug("registerApi skipped: APIs must be registered before launch")
+            return false
+        }
+        guard !handler.apiNames.isEmpty else {
+            DMPLogger.debug("registerApi skipped: handler has no API names")
+            return false
+        }
+
+        // Reopening the same mini app normally registers the same API groups
+        // again before launch. Replace that group instead of growing duplicate
+        // registrations indefinitely; disjoint API groups remain untouched.
+        if let index = apiRegistrations.firstIndex(where: {
+            $0.0.apiNames == handler.apiNames
+        }) {
+            apiRegistrations[index] = (handler, conflictPolicy)
+        } else {
+            apiRegistrations.append((handler, conflictPolicy))
+        }
+        return true
+    }
+
+    /// Registers a host-provided replacement for the built-in page capsule.
+    ///
+    /// Register the provider before calling `launch`. The provider is scoped to
+    /// this `DMPApp` and is released when the app is destroyed.
+    @MainActor
+    @discardableResult
+    public func registerPageCapsuleProvider(_ provider: DMPPageCapsuleProvider) -> Bool {
+        guard !isLaunching, container == nil, !isDestroyed else {
+            DMPLogger.debug(
+                "registerPageCapsuleProvider skipped: provider must be registered before launch"
+            )
+            return false
+        }
+        guard pageCapsuleProvider == nil else {
+            DMPLogger.debug("registerPageCapsuleProvider skipped: provider is already registered")
+            return false
+        }
+
+        pageCapsuleProvider = provider
+        return true
+    }
+
     public func getBundleAppConfig() -> DMPBundleAppConfig? {
         return bundleAppConfig
     }
@@ -135,17 +191,21 @@ public class DMPApp {
         DMPLog.bundle.debug("initBundle, appId=\(appId)")
         DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         DMPResourceManager.prepareSdk()
-        DMPResourceManager.prepareApp(appId: appId)
+        if developerPreviewClient == nil && developerDebugClient == nil {
+            DMPResourceManager.prepareApp(appId: appId)
+        }
         // 如果有 versionCode，也确保版本目录的结构
         if let versionCode = appConfig?.versionCode {
             DMPSandboxManager.initBundleDirectoryForApp(appId: appId + "/\(versionCode)")
         }
     }
 
-    private static func prepareBundleResources(appId: String) async {
+    private static func prepareBundleResources(appId: String, prepareApp: Bool) async {
         await Task.detached(priority: .userInitiated) {
             DMPResourceManager.prepareSdk()
-            DMPResourceManager.prepareApp(appId: appId)
+            if prepareApp {
+                DMPResourceManager.prepareApp(appId: appId)
+            }
             DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         }.value
     }
@@ -156,6 +216,19 @@ public class DMPApp {
         DMPUIManager.shared.prepareUI()
         container = DMPContainer(app: self)
         containerApi = DMPContainerApi.create(app: self)
+        if let containerApi {
+            for (handler, conflictPolicy) in apiRegistrations {
+                let conflicts = containerApi.registerCustomAPI(
+                    handler,
+                    conflictPolicy: conflictPolicy
+                )
+                if !conflicts.isEmpty {
+                    DMPLogger.debug(
+                        "registerApi rejected conflicting methods: \(conflicts.sorted())"
+                    )
+                }
+            }
+        }
     }
 
     @MainActor
@@ -179,7 +252,7 @@ public class DMPApp {
             await service?.evaluateScript("globalThis.__diminaApiNamespaces = \(json)")
         }
         // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
-        let registeredApis = DMPContainerApi.getAllRegisteredMethods()
+        let registeredApis = containerApi?.getAllRegisteredMethods() ?? []
         if !registeredApis.isEmpty,
            let data = try? JSONSerialization.data(withJSONObject: registeredApis),
            let json = String(data: data, encoding: .utf8) {
@@ -443,28 +516,60 @@ public class DMPApp {
     @MainActor
     public func openPage(launchConfig: DMPLaunchConfig) async {
         // 优先使用传入的 path，没传时 fallback 到 app-config.json 的第一个页面
-        let entryPath = (launchConfig.appEntryPath ?? "").isEmpty
+        let requestedPath = (launchConfig.appEntryPath ?? "").isEmpty
             ? (self.bundleAppConfig?.entryPagePath ?? "")
             : launchConfig.appEntryPath ?? ""
-        DMPLog.app.info("openPage entryPath=\(entryPath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
+        let route = DMPPageRoute(path: requestedPath)
+        let query = route.merging(query: launchConfig.query)
+        DMPLog.app.info("openPage entryPath=\(route.pagePath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
 
         // Cache the resolved launch config for applyUpdate relaunch
         var resolvedConfig = launchConfig
-        resolvedConfig.appEntryPath = entryPath
+        resolvedConfig.appEntryPath = route.pagePath
+        resolvedConfig.query = query
         currentLaunchConfig = resolvedConfig
 
-        await navigator?.launch(to: entryPath, query: launchConfig.query)
+        await navigator?.launch(to: route.pagePath, query: query)
     }
 
     @MainActor
     public func applyUpdate() async {
+        let currentPage = navigator?.getCurrentRoute()
         let launchConfig = currentLaunchConfig
         service?.destroy()
         await initService()
         await loadBundle()
 
-        let entryPath = launchConfig?.appEntryPath ?? bundleAppConfig?.entryPagePath ?? ""
-        await navigator?.relaunch(to: entryPath, query: launchConfig?.query, animated: false)
+        let entryPath = currentPage?.path
+            ?? launchConfig?.appEntryPath
+            ?? bundleAppConfig?.entryPagePath
+            ?? ""
+        let query = currentPage?.query ?? launchConfig?.query
+        await navigator?.relaunch(to: entryPath, query: query, animated: false)
+    }
+
+    /// Enables the authenticated QDMP preview session prepared before launch.
+    /// Debug hosts call this before `launch`; release hosts never opt in.
+    public func configureDeveloperPreview(_ session: DMPDeveloperPreviewSession) {
+        developerDebugClient?.stop()
+        developerDebugClient = nil
+        developerPreviewClient?.stop()
+        developerPreviewClient = DMPDeveloperPreviewClient.attach(session: session, to: self)
+    }
+
+    /// Enables the developer-tool WebSocket channel for archive previews.
+    public func configureDeveloperDebug(_ session: DMPDeveloperDebugSession) {
+        developerPreviewClient?.stop()
+        developerPreviewClient = nil
+        developerDebugClient?.stop()
+        developerDebugClient = DMPDeveloperDebugClient.attach(session: session, to: self)
+    }
+
+    /// Replaces only live mini-app stylesheet links. The service VM, page
+    /// instances, navigation stack, form controls and scroll positions survive.
+    @MainActor
+    public func applyDeveloperStyleUpdate(revision: Int) {
+        render?.refreshDeveloperStyles(revision: revision)
     }
 
     /// 注册第三方扩展 bridge 模块。
@@ -493,9 +598,14 @@ public class DMPApp {
         }
         isDestroyed = true
         DMPLog.app.info("destroy, appId=\(appId)")
+        developerPreviewClient?.stop()
+        developerPreviewClient = nil
+        developerDebugClient?.stop()
+        developerDebugClient = nil
 
         BluetoothAPIManager.shared.clearApp(appId)
         LocalNetworkAPIManager.shared.clearApp(appId)
+        DMPFileUtil.removeFileURLScheme(forAppId: appId)
 
         // Clear WebView cache pool (execute on main thread)
         Task { @MainActor in
@@ -508,7 +618,9 @@ public class DMPApp {
         service = nil
         container = nil
         containerApi = nil
+        apiRegistrations.removeAll()
         render = nil
+        pageCapsuleProvider = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 

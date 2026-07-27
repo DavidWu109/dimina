@@ -24,6 +24,8 @@ public class DMPPageController: UIViewController {
     private weak var app: DMPApp?
     private let isRoot: Bool
     private let showsLaunchLoading: Bool
+    private var launchTimingID = ""
+    private var launchStartedAt: TimeInterval = 0
 
     // WebView related
     private var webview: DMPWebview
@@ -32,10 +34,13 @@ public class DMPPageController: UIViewController {
     private var customNavigationContentView: UIView?
     private var customNavigationTitleLabel: UILabel?
     private var customNavigationBackButton: UIButton?
+    private var customNavigationHomeButton: UIButton?
     private var customNavigationCapsuleView: UIView?
     private var customNavigationCapsuleMoreButton: UIButton?
     private var customNavigationCapsuleCloseButton: UIButton?
     private var customNavigationCapsuleSeparatorView: UIView?
+    private weak var pageCapsuleProvider: DMPPageCapsuleProvider?
+    private var isUsingHostCapsule = false
     private var miniProgramMenuContainerView: UIView?
     private var isClosingMiniProgram = false
     private var webViewTopToNavigationConstraint: NSLayoutConstraint?
@@ -47,6 +52,7 @@ public class DMPPageController: UIViewController {
     private var isWebViewDestroyed = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
+    private var isHomeButtonHiddenByAPI = false
     /// 页面自己的 navStyle 缓存，首次 setupNavigationBar 时写入，避免被 navigator 栈操作污染
     private var cachedNavStyle: [String: Any]?
 
@@ -63,6 +69,16 @@ public class DMPPageController: UIViewController {
         pagePath: String, query: [String: Any]?, appConfig: DMPAppConfig, app: DMPApp?,
         navigator: DMPNavigator?, isRoot: Bool = false, showsLaunchLoading: Bool = false
     ) {
+        #if DEBUG
+        let launchTimingID = String(UUID().uuidString.prefix(8))
+        let launchStartedAt = ProcessInfo.processInfo.systemUptime
+        DMPLog.render.info(
+            "pageLaunch id=\(launchTimingID) stage=container_init_start elapsedMs=0 path=\(pagePath)"
+        )
+
+        self.launchTimingID = launchTimingID
+        self.launchStartedAt = launchStartedAt
+        #endif
         self.pagePath = pagePath
         self.query = query
         self.appConfig = appConfig
@@ -79,6 +95,7 @@ public class DMPPageController: UIViewController {
         // Configure WebView - Configure immediately to ensure page path is set correctly
         configWebView()
         observeLoadingState()
+        logLaunchStage("container_init_end")
     }
 
     required init?(coder: NSCoder) {
@@ -102,6 +119,7 @@ public class DMPPageController: UIViewController {
     // View loaded
     public override func viewDidLoad() {
         super.viewDidLoad()
+        logLaunchStage("view_did_load_start")
 
         view.backgroundColor = .white
         setupCustomNavigationBar()
@@ -132,6 +150,8 @@ public class DMPPageController: UIViewController {
 
         // Set navigation bar style
         setupNavigationBar()
+        startResourcePreloadingIfNeeded()
+        logLaunchStage("view_did_load_end")
     }
 
     // View will appear
@@ -154,15 +174,18 @@ public class DMPPageController: UIViewController {
             miniProgramMenuContainerView.superview?.bringSubviewToFront(miniProgramMenuContainerView)
         }
         loadingView?.superview?.bringSubviewToFront(loadingView!)
+        webview.refreshHostReadiness()
     }
 
     // View did appear
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        startLoadingIfNeeded()
+        logLaunchStage("view_did_appear")
+        webview.refreshHostReadiness()
+        startResourcePreloadingIfNeeded()
     }
 
-    private func startLoadingIfNeeded() {
+    private func startResourcePreloadingIfNeeded() {
         guard !hasStartedLoading, !isWebViewDestroyed else {
             return
         }
@@ -174,7 +197,19 @@ public class DMPPageController: UIViewController {
         #if DEBUG
         enableVConsole = true
         #endif
+        logLaunchStage("load_page_frame_start")
         webview.loadPageFrame(enableVConsole: enableVConsole)
+    }
+
+    private func logLaunchStage(_ stage: String) {
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - launchStartedAt) * 1_000
+        let formattedElapsed = String(format: "%.3f", elapsedMs)
+        DMPLog.render.info(
+            "pageLaunch id=\(launchTimingID) stage=\(stage) "
+                + "elapsedMs=\(formattedElapsed) path=\(pagePath)"
+        )
+        #endif
     }
 
     public func preparePageLoading(in parentController: UIViewController) {
@@ -203,6 +238,15 @@ public class DMPPageController: UIViewController {
                 }
             }
         }
+
+        webview.onHostReadinessChanged = { [weak self] isReady in
+            guard let self = self, !self.isWebViewDestroyed else { return }
+            self.app?.container?.setRenderHostReady(
+                webViewId: self.webview.getWebViewId(),
+                isReady: isReady
+            )
+        }
+        webview.refreshHostReadiness()
     }
 
     private func showPageLoadingIfNeeded() {
@@ -264,6 +308,16 @@ public class DMPPageController: UIViewController {
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.addTarget(self, action: #selector(customBackButtonTapped), for: .touchUpInside)
 
+        let homeButton = UIButton(type: .custom)
+        homeButton.translatesAutoresizingMaskIntoConstraints = false
+        homeButton.addTarget(self, action: #selector(customHomeButtonTapped), for: .touchUpInside)
+
+        let leadingControls = UIStackView(arrangedSubviews: [backButton, homeButton])
+        leadingControls.translatesAutoresizingMaskIntoConstraints = false
+        leadingControls.axis = .horizontal
+        leadingControls.alignment = .center
+        leadingControls.spacing = 0
+
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textAlignment = .center
@@ -271,15 +325,26 @@ public class DMPPageController: UIViewController {
         titleLabel.lineBreakMode = .byTruncatingTail
 
         let capsuleView: UIView
-        let useHostOverlay: Bool
-        if let overlayProvider = app?.pageOverlayProvider,
-           let overlayView = overlayProvider.overlayView(for: self, isRoot: isRoot) {
-            overlayView.translatesAutoresizingMaskIntoConstraints = false
-            capsuleView = overlayView
-            useHostOverlay = true
+        let usesHostCapsule: Bool
+        let capsuleProvider = app?.pageCapsuleProvider
+        let capsuleContext = DMPPageCapsuleContext(
+            appId: appConfig.appId,
+            appName: appConfig.appName,
+            pagePath: pagePath,
+            query: query ?? [:],
+            isRoot: isRoot,
+            close: { [weak self] in
+                self?.capsuleCloseButtonTapped()
+            }
+        )
+        if let providedView = capsuleProvider?.makeCapsuleView(for: capsuleContext) {
+            providedView.translatesAutoresizingMaskIntoConstraints = false
+            capsuleView = providedView
+            usesHostCapsule = true
+            pageCapsuleProvider = capsuleProvider
         } else {
             capsuleView = makeCapsuleButton()
-            useHostOverlay = false
+            usesHostCapsule = false
         }
         let menuButtonRect = MenuAPI.getMenuButtonBoundingClientRect()
         let capsuleWidth = CGFloat(
@@ -295,11 +360,15 @@ public class DMPPageController: UIViewController {
                 ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
         )
         let capsuleTrailing = max(windowWidth - capsuleRight, 0)
+        let backButtonWidth = backButton.widthAnchor.constraint(equalToConstant: 40)
+        backButtonWidth.priority = .defaultHigh
+        let homeButtonWidth = homeButton.widthAnchor.constraint(equalToConstant: 40)
+        homeButtonWidth.priority = .defaultHigh
 
         view.addSubview(navigationBar)
         view.addSubview(capsuleView)
         navigationBar.addSubview(contentView)
-        contentView.addSubview(backButton)
+        contentView.addSubview(leadingControls)
         contentView.addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
@@ -313,14 +382,18 @@ public class DMPPageController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: navigationBar.bottomAnchor),
             contentView.heightAnchor.constraint(equalToConstant: DMPMenuButtonLayout.navigationBarContentHeight),
 
-            backButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            backButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
+            leadingControls.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            leadingControls.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            leadingControls.heightAnchor.constraint(equalToConstant: 44),
+
+            backButtonWidth,
             backButton.heightAnchor.constraint(equalToConstant: 44),
+            homeButtonWidth,
+            homeButton.heightAnchor.constraint(equalToConstant: 44),
 
             titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingControls.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: contentView.trailingAnchor,
                 constant: -DMPMenuButtonLayout.titleTrailingInset
@@ -328,20 +401,17 @@ public class DMPPageController: UIViewController {
 
             capsuleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             capsuleView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -capsuleTrailing),
+            capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth),
+            capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight),
         ])
-
-        if useHostOverlay {
-            // 宿主 overlay 自适应尺寸
-        } else {
-            capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth).isActive = true
-            capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight).isActive = true
-        }
 
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
         customNavigationBackButton = backButton
+        customNavigationHomeButton = homeButton
         customNavigationTitleLabel = titleLabel
         customNavigationCapsuleView = capsuleView
+        isUsingHostCapsule = usesHostCapsule
     }
 
     private func makeCapsuleButton() -> UIView {
@@ -568,6 +638,21 @@ public class DMPPageController: UIViewController {
         self.cachedNavStyle = navStyle
     }
 
+    public func mergeCachedNavStyle(_ updates: [String: Any]) {
+        var navStyle = cachedNavStyle
+            ?? app?.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
+            ?? [:]
+        for (key, value) in updates {
+            navStyle[key] = value
+        }
+        cachedNavStyle = navStyle
+    }
+
+    public func hideHomeButton() {
+        isHomeButtonHiddenByAPI = true
+        updateCustomNavigationButtons(darkStyle: usesLightNavigationForeground)
+    }
+
     public func updateNavigationTitle(_ title: String) {
         let nextTitle = title.isEmpty ? appConfig.appName : title
         customNavigationTitleLabel?.text = nextTitle
@@ -577,39 +662,128 @@ public class DMPPageController: UIViewController {
     public func updateNavigationColor(backgroundColor: UIColor, textColor: UIColor, darkStyle: Bool) {
         customNavigationBar?.backgroundColor = backgroundColor
         customNavigationTitleLabel?.textColor = textColor
-        updateCustomBackButton(darkStyle: darkStyle)
+        updateCustomNavigationButtons(darkStyle: darkStyle)
         updateCustomCapsuleButton(darkStyle: darkStyle)
-
-        let frontColor = darkStyle ? "#ffffff" : "#000000"
-        if let colorApplicable = customNavigationCapsuleView as? DMPNavigationBarColorApplicable {
-            colorApplicable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: nil)
+        if let capsuleView = customNavigationCapsuleView {
+            let style = DMPPageCapsuleStyle(
+                foregroundColor: textColor,
+                backgroundColor: backgroundColor,
+                usesLightForeground: darkStyle
+            )
+            pageCapsuleProvider?.updateCapsuleView(capsuleView, style: style)
         }
     }
 
-    private func updateCustomBackButton(darkStyle: Bool) {
+    private func updateCustomNavigationButtons(darkStyle: Bool) {
         guard let backButton = customNavigationBackButton else {
             return
         }
 
+        let showsHome = shouldShowHomeButton
+        backButton.isHidden = isRoot
+        customNavigationHomeButton?.isHidden = !showsHome
+
+        backButton.accessibilityLabel = "Back"
         if let bundle = DMPResourceManager.assetsBundle {
-            let imageName = darkStyle ? "arrow-back-dark" : "arrow-back-light"
-            if let image = UIImage(named: imageName, in: bundle, compatibleWith: nil) {
-                backButton.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
+            if let image = UIImage(named: "mini-program-back", in: bundle, compatibleWith: nil) {
+                backButton.tintColor = darkStyle ? .white : .black
+                backButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
                 backButton.setTitle(nil, for: .normal)
-                return
+            } else {
+                backButton.setImage(nil, for: .normal)
+                backButton.setTitle("back", for: .normal)
+                backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
             }
+        } else {
+            backButton.setImage(nil, for: .normal)
+            backButton.setTitle("back", for: .normal)
+            backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
         }
 
-        backButton.setImage(nil, for: .normal)
-        backButton.setTitle("back", for: .normal)
-        backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+        if let homeButton = customNavigationHomeButton {
+            homeButton.accessibilityLabel = "Back to mini program home"
+            if let bundle = DMPResourceManager.assetsBundle,
+               let image = UIImage(named: "mini-program-home", in: bundle, compatibleWith: nil) {
+                homeButton.tintColor = darkStyle ? .white : .black
+                homeButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+                homeButton.setTitle(nil, for: .normal)
+            } else {
+                homeButton.setImage(nil, for: .normal)
+                homeButton.setTitle("home", for: .normal)
+                homeButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+            }
+        }
+    }
+
+    private var usesLightNavigationForeground: Bool {
+        return (cachedNavStyle?["navigationBarTextStyle"] as? String) == "white"
+    }
+
+    private var isEntryPage: Bool {
+        guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
+            return false
+        }
+        let entryRoute = DMPPageRoute(path: rawEntryPath)
+        let currentRoute = DMPPageRoute(path: pagePath)
+        return !entryRoute.normalizedPagePath.isEmpty
+            && entryRoute.normalizedPagePath == currentRoute.normalizedPagePath
+    }
+
+    private var shouldShowHomeButton: Bool {
+        guard !isHomeButtonHiddenByAPI,
+              !isEntryPage,
+              app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) != true
+        else {
+            return false
+        }
+
+        if isRoot {
+            return true
+        }
+        if (cachedNavStyle?["homeButton"] as? Bool) == true {
+            return true
+        }
+        return appConfig.showsHomeButtonOnStackedPages
+    }
+
+    /// Any non-entry page can return directly to the configured mini-program home.
+    /// The entry root has no leading controls, root deep links show only Home,
+    /// and stacked non-entry pages show Back and Home together.
+    private var miniProgramHomePath: String? {
+        guard shouldShowHomeButton else {
+            return nil
+        }
+        guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
+            return nil
+        }
+
+        let entryRoute = DMPPageRoute(path: rawEntryPath)
+        let currentRoute = DMPPageRoute(path: pagePath)
+        guard !entryRoute.normalizedPagePath.isEmpty,
+              entryRoute.normalizedPagePath != currentRoute.normalizedPagePath
+        else {
+            return nil
+        }
+        return entryRoute.pagePath
     }
 
     @objc private func customBackButtonTapped() {
         navigator?.handleBackButtonTapped()
     }
 
+    @objc private func customHomeButtonTapped() {
+        guard let homePath = miniProgramHomePath else {
+            return
+        }
+        Task { @MainActor [weak navigator] in
+            await navigator?.relaunch(to: homePath, query: nil, animated: false)
+        }
+    }
+
     private func updateCustomCapsuleButton(darkStyle: Bool) {
+        guard !isUsingHostCapsule else {
+            return
+        }
         if darkStyle {
             customNavigationCapsuleView?.backgroundColor = UIColor(white: 0.2, alpha: 0.6)
             customNavigationCapsuleView?.layer.borderColor = UIColor(white: 1, alpha: 0.25).cgColor
@@ -629,12 +803,6 @@ public class DMPPageController: UIViewController {
 
     @objc private func capsuleMoreButtonTapped() {
         showMiniProgramMenu()
-    }
-
-    /// 关闭整个小程序：一次性移除所有小程序 VC，动画完成后 destroy app。
-    /// 内置胶囊和宿主 overlay 都调这个方法。
-    public func closeMiniProgram() {
-        capsuleCloseButtonTapped()
     }
 
     @objc private func capsuleCloseButtonTapped() {
@@ -981,10 +1149,6 @@ public class DMPPageController: UIViewController {
     }
 
     // Get WebView instance
-    public func getApp() -> DMPApp? {
-        return app
-    }
-
     public func getWebView() -> DMPWebview {
         return webview
     }
@@ -1017,6 +1181,7 @@ public class DMPPageController: UIViewController {
         
         DMPLogger.debug("🗑️ DMPPageController: Destroy WebView (ID: \(webview.getWebViewId()))")
         isWebViewDestroyed = true
+        webview.onHostReadinessChanged = nil
         
         // Notify page unload
         if let app = app {
@@ -1027,6 +1192,7 @@ public class DMPPageController: UIViewController {
                 ]
             ])
             DMPChannelProxy.containerToService(msg: msg, app: app)
+            app.container?.clearPageStartupState(webViewId: webview.getWebViewId())
         }
         
         // Release WebView back to pool

@@ -205,6 +205,12 @@ public class DMPWebViewOptimizer {
          let diminaSchemeHandler = DiminaURLSchemeHandler(appId: appId)
          config.setURLSchemeHandler(diminaSchemeHandler, forURLScheme: "dimina")
 
+         let canvasImageSchemeHandler = CanvasImageURLSchemeHandler()
+         config.setURLSchemeHandler(
+             canvasImageSchemeHandler,
+             forURLScheme: CanvasImageURLSchemeHandler.scheme
+         )
+
          for (scheme, factory) in customSchemeFactories {
              let handler = factory(appId)
              config.setURLSchemeHandler(handler, forURLScheme: scheme)

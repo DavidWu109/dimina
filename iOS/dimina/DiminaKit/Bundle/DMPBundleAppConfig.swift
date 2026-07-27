@@ -96,6 +96,11 @@ public class DMPBundleAppConfig {
                        (appWindowConfig["backgroundColor"] as? String) ?? "#FFFFFF"
         mergedConfig["navigationStyle"] = (pagePrivateConfig["navigationStyle"] as? String) ?? 
                        (appWindowConfig["navigationStyle"] as? String) ?? "default"
+        if let homeButton = pagePrivateConfig["homeButton"] as? Bool {
+            mergedConfig["homeButton"] = homeButton
+        } else if let homeButton = appWindowConfig["homeButton"] as? Bool {
+            mergedConfig["homeButton"] = homeButton
+        }
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
         
         return mergedConfig

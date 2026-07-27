@@ -12,6 +12,7 @@ import WebKit
 public class DMPRender: DMPWebViewDelegate {
     private var webviewsMap: [Int: DMPWebview] = [:]
     private weak var app: DMPApp?
+    private weak var loggerDelegate: DMPWebViewLoggerDelegate?
 
     private lazy var invokeHandler: DMPWebViewInvoke = DMPWebViewInvoke(render: self)
     private lazy var publishHandler: DMPWebViewPublish = DMPWebViewPublish(render: self)
@@ -31,8 +32,17 @@ public class DMPRender: DMPWebViewDelegate {
             appName: appName,
             appId: app?.getAppId() ?? ""
         )
+        webview.setLoggerDelegate(loggerDelegate)
         webviewsMap[webview.getWebViewId()] = webview
         return webview
+    }
+
+    @MainActor
+    func setLoggerDelegate(_ delegate: DMPWebViewLoggerDelegate?) {
+        loggerDelegate = delegate
+        for webview in webviewsMap.values {
+            webview.setLoggerDelegate(delegate)
+        }
     }
 
     // Release WebView instance
@@ -51,6 +61,50 @@ public class DMPRender: DMPWebViewDelegate {
     // Execute JavaScript code
     public func executeJavaScript(webViewId: Int, _ script: String, completionHandler: ((Any?, Error?) -> Void)? = nil) -> Void {
         webviewsMap[webViewId]?.executeJavaScript(script, completionHandler: completionHandler)
+    }
+
+    /// Reload mini-app CSS links in place after QDMP atomically replaces the
+    /// corresponding files. Runtime SDK styles (`/assets/*`) are deliberately
+    /// excluded so only the app's `app.css` and page CSS are touched.
+    @MainActor
+    public func refreshDeveloperStyles(revision: Int) {
+        let appId = app?.getAppId() ?? ""
+        guard !appId.isEmpty,
+              let appIdData = try? JSONEncoder().encode(appId),
+              let appIdJSON = String(data: appIdData, encoding: .utf8) else {
+            return
+        }
+        let script = """
+        (function() {
+          var appId = \(appIdJSON);
+          var prefix = '/' + appId + '/';
+          var links = Array.prototype.slice.call(
+            document.querySelectorAll('link[rel="stylesheet"]')
+          ).filter(function(link) {
+            try { return new URL(link.href).pathname.indexOf(prefix) === 0; }
+            catch (_) { return false; }
+          });
+          links.forEach(function(link) {
+            var next = link.cloneNode(false);
+            var url = new URL(link.href);
+            url.searchParams.set('__dmp_preview', '\(revision)');
+            next.href = url.toString();
+            next.onload = function() { link.remove(); };
+            next.onerror = function() { next.remove(); };
+            link.parentNode.insertBefore(next, link.nextSibling);
+          });
+          return links.length;
+        })();
+        """
+        for webview in webviewsMap.values where webview.poolState.canInteract {
+            webview.executeJavaScript(script) { _, error in
+                if let error {
+                    DMPLog.render.warn(
+                        "developer style refresh failed: \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
     }
 
     // Register JavaScript method to allow Native to listen to JavaScript calls
@@ -106,15 +160,21 @@ public class DMPRender: DMPWebViewDelegate {
             await self?.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath)
 
             await MainActor.run { [weak self, weak webview] in
-                guard let self = self, let webview = webview else { return }
+                guard let self = self,
+                      let webview = webview,
+                      self.webviewsMap[webViewId] === webview else {
+                    return
+                }
                 self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath)
 
                 self.scheduleDOMDiagnostics(webview: webview, webViewId: webViewId)
-
-                webview.poolState = .ready
-                DMPLog.render.info("webview id=\(webViewId) marked as ready")
+                DMPLog.render.info("webview id=\(webViewId) resource preparation requested")
             }
         }
+    }
+
+    public func webViewContentProcessDidTerminate(webViewId: Int) {
+        app?.container?.restartPageStartup(webViewId: webViewId)
     }
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load failure event

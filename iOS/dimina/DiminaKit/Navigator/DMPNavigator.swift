@@ -250,6 +250,7 @@ public class DMPNavigator: NSObject {
         }
 
         let currentIndex = navigationController.viewControllers.count - 1
+        let isReplacingRootPage = pageRecords.count <= 1
 
         // 如果当前只有一个页面，则需要特殊处理
         if currentIndex == 0 {
@@ -298,7 +299,7 @@ public class DMPNavigator: NSObject {
             appConfig: app!.getAppConfig()!,
             app: app,
             navigator: self,
-            isRoot: false
+            isRoot: isReplacingRootPage
         )
 
         let pageRecord = DMPPageRecord(
@@ -348,6 +349,33 @@ public class DMPNavigator: NSObject {
     /// 获取当前页面记录
     public func getTopPageRecord() -> DMPPageRecord? {
         return pageRecords.last
+    }
+
+    /// Returns the page that is actually visible. A tab container owns its
+    /// page controller as a child, so `topViewController` alone is not enough.
+    @MainActor
+    public func getCurrentPageController() -> DMPPageController? {
+        if let container = navigationController?.topViewController as? DMPTabBarContainerController {
+            return container.currentPageController
+        }
+        return navigationController?.topViewController as? DMPPageController
+    }
+
+    /// The route currently visible to the developer. Inspect only the top view
+    /// controller: a tab container may still exist lower in the stack while a
+    /// detail page is visible above it.
+    func getCurrentRoute() -> (path: String, query: [String: Any]?)? {
+        if let container = navigationController?.topViewController
+            as? DMPTabBarContainerController,
+           let webview = container.currentPageController?.getWebView() {
+            return (webview.getPagePath(), webview.getQuery())
+        }
+        if let pageController = navigationController?.topViewController as? DMPPageController {
+            let webview = pageController.getWebView()
+            return (webview.getPagePath(), webview.getQuery())
+        }
+        guard let record = pageRecords.last else { return nil }
+        return (record.pagePath, record.query)
     }
 
     /// 给外部容器（如 DMPTabBarContainerController）追加 pageRecord 用。

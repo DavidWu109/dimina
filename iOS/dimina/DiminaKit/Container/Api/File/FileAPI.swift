@@ -6,7 +6,6 @@ import ZIPFoundation
 public class FileAPI: DMPContainerApi {
     private static let SAVE_FILE_TO_DISK = "saveFileToDisk"
     private static let PREFIX = "FileSystemManager."
-    private static let VIRTUAL_PREFIX = "difile://"
     private static let USER_PREFIX = "usr"
     private static let TEMP_PREFIX = "tmp"
     private static let ARRAY_BUFFER_BASE64_KEY = "__diminaArrayBufferBase64"
@@ -307,11 +306,24 @@ public class FileAPI: DMPContainerApi {
         return path
     }
 
+    private static func virtualPrefix(env: DMPBridgeEnv) -> String {
+        "\(DMPFileUtil.fileURLScheme(forAppId: env.appId))://"
+    }
+
+    private static func matchingVirtualPrefix(path: String, env: DMPBridgeEnv) -> String? {
+        let prefixes = [
+            virtualPrefix(env: env),
+            "\(DMPFileUtil.DMPFileURLScheme)://",
+        ]
+        return prefixes.first { path.lowercased().hasPrefix($0) }
+    }
+
     private static func resolve(env: DMPBridgeEnv, path rawPath: String) throws -> URL {
         guard !rawPath.isEmpty else { throw FileError.message("missing file path") }
         let url: URL
-        if rawPath.hasPrefix(VIRTUAL_PREFIX) {
-            let relative = rawPath.replacingOccurrences(of: VIRTUAL_PREFIX, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if let prefix = matchingVirtualPrefix(path: rawPath, env: env) {
+            let relative = String(rawPath.dropFirst(prefix.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if relative == USER_PREFIX || relative.hasPrefix(USER_PREFIX + "/") {
                 url = URL(fileURLWithPath: root(env: env, user: true)).appendingPathComponent(String(relative.dropFirst(USER_PREFIX.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/")))
             } else if relative == TEMP_PREFIX || relative.hasPrefix(TEMP_PREFIX + "/") {
@@ -365,7 +377,7 @@ public class FileAPI: DMPContainerApi {
     private static func userPath(env: DMPBridgeEnv, url: URL) -> String {
         let rootPath = URL(fileURLWithPath: root(env: env, user: true)).standardizedFileURL.path
         let relative = url.standardizedFileURL.path.replacingOccurrences(of: rootPath, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return "\(VIRTUAL_PREFIX)\(USER_PREFIX)/\(relative)"
+        return "\(virtualPrefix(env: env))\(USER_PREFIX)/\(relative)"
     }
 
     private static func appendFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws {
@@ -373,9 +385,9 @@ public class FileAPI: DMPContainerApi {
         let url = try resolve(env: env, path: map.getString(key: "filePath") ?? "")
         guard FileManager.default.fileExists(atPath: url.path) else { throw FileError.message("no such file or directory, open \(url.path)") }
         let handle = try FileHandle(forWritingTo: url)
-        try handle.seekToEnd()
+        try handle.compatSeekToEnd()
         handle.write(bytes(param: param))
-        try handle.close()
+        try handle.compatClose()
     }
 
     private static func copyFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws {
@@ -427,8 +439,8 @@ public class FileAPI: DMPContainerApi {
 
     private static func truncateSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws {
         let handle = try FileHandle(forUpdating: resolve(env: env, path: param.getMap().getString(key: "filePath") ?? ""))
-        try handle.truncate(atOffset: UInt64(param.getMap().getInt(key: "length") ?? 0))
-        try handle.close()
+        try handle.compatTruncate(atOffset: UInt64(param.getMap().getInt(key: "length") ?? 0))
+        try handle.compatClose()
     }
 
     private static func openSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws -> String {
@@ -439,8 +451,8 @@ public class FileAPI: DMPContainerApi {
             FileManager.default.createFile(atPath: url.path, contents: nil)
         }
         let handle = try FileHandle(forUpdating: url)
-        if flag == "w" || flag == "w+" { try handle.truncate(atOffset: 0) }
-        if flag.hasPrefix("a") { try handle.seekToEnd() }
+        if flag == "w" || flag == "w+" { try handle.compatTruncate(atOffset: 0) }
+        if flag.hasPrefix("a") { try handle.compatSeekToEnd() }
         let fd = UUID().uuidString
         openFiles[fd] = OpenFile(handle: handle, path: url.path)
         return fd
@@ -455,22 +467,22 @@ public class FileAPI: DMPContainerApi {
     private static func closeSync(param: DMPBridgeParam) throws {
         let fd = param.getMap().getString(key: "fd") ?? stringParam(param, key: "fd")
         guard let file = openFiles.removeValue(forKey: fd) else { throw FileError.message("bad file descriptor") }
-        try file.handle.close()
+        try file.handle.compatClose()
     }
 
     private static func readSync(param: DMPBridgeParam) throws -> [String: Any] {
         let file = try opened(param)
         let map = param.getMap()
-        if let position = map.getInt(key: "position") { try file.handle.seek(toOffset: UInt64(position)) }
+        if let position = map.getInt(key: "position") { try file.handle.compatSeek(toOffset: UInt64(position)) }
         let length = map.getInt(key: "length") ?? map.getInt(key: "arrayBufferLength") ?? Int.max
-        let data = try file.handle.read(upToCount: length) ?? Data()
+        let data = try file.handle.compatRead(upToCount: length) ?? Data()
         return ["bytesRead": data.count, ARRAY_BUFFER_BASE64_KEY: data.base64EncodedString()]
     }
 
     private static func writeSync(param: DMPBridgeParam) throws -> [String: Any] {
         let file = try opened(param)
         let map = param.getMap()
-        if let position = map.getInt(key: "position") { try file.handle.seek(toOffset: UInt64(position)) }
+        if let position = map.getInt(key: "position") { try file.handle.compatSeek(toOffset: UInt64(position)) }
         let key = map.get("arrayBuffer") != nil ? "arrayBuffer" : "data"
         let data = bytes(param: param, key: key)
         file.handle.write(data)
@@ -482,13 +494,14 @@ public class FileAPI: DMPContainerApi {
     }
 
     private static func ftruncateSync(param: DMPBridgeParam) throws {
-        try opened(param).handle.truncate(atOffset: UInt64(param.getMap().getInt(key: "length") ?? 0))
+        try opened(param).handle.compatTruncate(atOffset: UInt64(param.getMap().getInt(key: "length") ?? 0))
     }
 
     private static func saveFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws -> String {
         let map = param.getMap()
         let temp = try resolve(env: env, path: map.getString(key: "tempFilePath") ?? "")
-        let dest = try resolve(env: env, path: map.getString(key: "filePath") ?? "\(VIRTUAL_PREFIX)\(USER_PREFIX)/saved/\(Int(Date().timeIntervalSince1970))_\(temp.lastPathComponent)")
+        let defaultPath = "\(virtualPrefix(env: env))\(USER_PREFIX)/saved/\(Int(Date().timeIntervalSince1970))_\(temp.lastPathComponent)"
+        let dest = try resolve(env: env, path: map.getString(key: "filePath") ?? defaultPath)
         try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
         if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
         try FileManager.default.moveItem(at: temp, to: dest)

@@ -10,6 +10,9 @@ import WebKit
 
 @available(iOS 11.0, *)
 class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    /// Gives root-relative SDK resources a valid custom-scheme origin.
+    static let sdkHost = "sdk"
+
     private let appId: String
     private let versionCode: Int?
 
@@ -69,10 +72,12 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private func resolvePath(for url: URL) -> (path: String, kind: String)? {
+        let host = url.host?.lowercased()
+        let isAllowedHost = host == nil || host?.isEmpty == true || host == Self.sdkHost
         guard url.scheme?.lowercased() == "dimina",
               url.user == nil,
               url.password == nil,
-              url.host == nil || url.host?.isEmpty == true else {
+              isAllowedHost else {
             return nil
         }
         let path = url.path

@@ -49,6 +49,14 @@ class MapContext {
 		return this.invoke('removeArc', data)
 	}
 
+	calculateRoute(data) {
+		return this.invoke('calculateRoute', data)
+	}
+
+	openNavigation(data) {
+		return this.invoke('openNavigation', data)
+	}
+
 	invoke(apiName, data = {}) {
 		return invokeAPI(apiName, {
 			mapId: this.opts.mapId,

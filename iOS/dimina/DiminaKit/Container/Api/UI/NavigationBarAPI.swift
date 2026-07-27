@@ -17,6 +17,7 @@ public class NavigationBarAPI: DMPContainerApi {
         super.init(app: app)
         register("setNavigationBarTitle", handler: setNavigationBarTitle)
         register("setNavigationBarColor", handler: setNavigationBarColor)
+        register("hideHomeButton", handler: hideHomeButton)
     }
 
     private func setNavigationBarTitle(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
@@ -28,13 +29,18 @@ public class NavigationBarAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        guard let navigationController = app?.getNavigator()?.navigationController else {
+        guard let navigator = app?.getNavigator() else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarTitle:fail navigation controller not found")
             return DMPAsyncResult()
         }
 
         DispatchQueue.main.async {
-            navigationController.topViewController?.title = title
+            guard let pageController = navigator.getCurrentPageController() else {
+                DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarTitle:fail page controller not found")
+                return
+            }
+            pageController.mergeCachedNavStyle(["navigationBarTitleText": title])
+            pageController.updateNavigationTitle(title)
 
             let result = DMPMap()
             result.set("errMsg", "setNavigationBarTitle:ok")
@@ -64,8 +70,9 @@ public class NavigationBarAPI: DMPContainerApi {
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
         DispatchQueue.main.async {
-            guard let navigationController = app?.getNavigator()?.navigationController,
-                  let topViewController = navigationController.topViewController else {
+            guard let navigator = app?.getNavigator(),
+                  let navigationController = navigator.navigationController,
+                  let pageController = navigator.getCurrentPageController() else {
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "setNavigationBarColor:fail navigation controller not found")
                 return
             }
@@ -94,43 +101,56 @@ public class NavigationBarAPI: DMPContainerApi {
             }()
 
             UIView.animate(withDuration: animationDuration, delay: 0, options: animationOptions) {
-                topViewController.navigationItem.standardAppearance = appearance
-                topViewController.navigationItem.scrollEdgeAppearance = appearance
-                topViewController.navigationItem.compactAppearance = appearance
-                topViewController.navigationItem.leftBarButtonItem = app?.getNavigator()?.createBackButton(darkStyle: frontColor == "#ffffff")
+                pageController.navigationItem.standardAppearance = appearance
+                pageController.navigationItem.scrollEdgeAppearance = appearance
+                pageController.navigationItem.compactAppearance = appearance
 
                 if #available(iOS 15.0, *) {
-                    topViewController.navigationItem.compactScrollEdgeAppearance = appearance
+                    pageController.navigationItem.compactScrollEdgeAppearance = appearance
                 }
 
                 navigationController.navigationBar.tintColor = textColor
                 navigationController.navigationBar.setNeedsLayout()
-
-                // 通知 overlay (宿主胶囊) 切换深/浅模式 —— overlayView 需要宿主通过 pageOverlayProvider 注入
-                if let pageController = topViewController as? DMPPageController,
-                   pageController.responds(to: Selector(("overlayView"))),
-                   let overlay = pageController.value(forKey: "overlayView"),
-                   let stylable = overlay as? DMPNavigationBarColorApplicable {
-                    stylable.applyNavigationBarColor(frontColor: frontColor, backgroundColor: backgroundColor)
-                }
+                pageController.updateNavigationColor(
+                    backgroundColor: bgColor,
+                    textColor: textColor,
+                    darkStyle: frontColor == "#ffffff"
+                )
             }
 
-            let updatedNavStyle: [String: Any] = {
-                var s = app?.getNavigator()?.getTopPageRecord()?.navStyle ?? [:]
-                s["navigationBarBackgroundColor"] = backgroundColor
-                s["navigationBarTextStyle"] = frontColor == "#ffffff" ? "white" : "black"
-                return s
-            }()
-            app?.getNavigator()?.getTopPageRecord()?.navStyle = updatedNavStyle
-            if let pageController = topViewController as? DMPPageController {
-                pageController.updateCachedNavStyle(updatedNavStyle)
-            }
+            pageController.mergeCachedNavStyle([
+                "navigationBarBackgroundColor": backgroundColor,
+                "navigationBarTextStyle": frontColor == "#ffffff" ? "white" : "black",
+            ])
 
             let result = DMPMap()
             result.set("errMsg", "setNavigationBarColor:ok")
             DMPContainerApi.invokeSuccess(callback: callback, param: result)
         }
 
+        return DMPAsyncResult()
+    }
+
+    private func hideHomeButton(
+        _ param: DMPBridgeParam,
+        _ env: DMPBridgeEnv,
+        _ callback: DMPBridgeCallback?
+    ) -> DMPAPIResult {
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
+        DispatchQueue.main.async {
+            guard let pageController = app?.getNavigator()?.getCurrentPageController() else {
+                DMPContainerApi.invokeFailure(
+                    callback: callback,
+                    param: nil,
+                    errMsg: "hideHomeButton:fail page controller not found"
+                )
+                return
+            }
+            pageController.hideHomeButton()
+            let result = DMPMap()
+            result.set("errMsg", "hideHomeButton:ok")
+            DMPContainerApi.invokeSuccess(callback: callback, param: result)
+        }
         return DMPAsyncResult()
     }
 }
