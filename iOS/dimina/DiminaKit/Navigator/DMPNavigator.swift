@@ -351,6 +351,16 @@ public class DMPNavigator: NSObject {
         return pageRecords.last
     }
 
+    /// Returns the page that is actually visible. A tab container owns its
+    /// page controller as a child, so `topViewController` alone is not enough.
+    @MainActor
+    public func getCurrentPageController() -> DMPPageController? {
+        if let container = navigationController?.topViewController as? DMPTabBarContainerController {
+            return container.currentPageController
+        }
+        return navigationController?.topViewController as? DMPPageController
+    }
+
     /// The route currently visible to the developer. Inspect only the top view
     /// controller: a tab container may still exist lower in the stack while a
     /// detail page is visible above it.

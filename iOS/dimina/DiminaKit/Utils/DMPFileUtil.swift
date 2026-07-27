@@ -12,8 +12,38 @@ import ZIPFoundation
 public class DMPFileUtil {
 
     public static let DMPFileURLScheme: String = "difile"
+    private static let fileURLSchemeLock = NSLock()
+    private static var fileURLSchemes: [String: String] = [:]
 
     private init() {}
+
+    static func setFileURLScheme(_ scheme: String, forAppId appId: String) {
+        let normalized = normalizedFileURLScheme(scheme) ?? DMPFileURLScheme
+        fileURLSchemeLock.lock()
+        fileURLSchemes[appId] = normalized
+        fileURLSchemeLock.unlock()
+    }
+
+    static func removeFileURLScheme(forAppId appId: String) {
+        fileURLSchemeLock.lock()
+        fileURLSchemes.removeValue(forKey: appId)
+        fileURLSchemeLock.unlock()
+    }
+
+    static func fileURLScheme(forAppId appId: String) -> String {
+        fileURLSchemeLock.lock()
+        defer { fileURLSchemeLock.unlock() }
+        return fileURLSchemes[appId] ?? DMPFileURLScheme
+    }
+
+    private static func normalizedFileURLScheme(_ scheme: String) -> String? {
+        let value = scheme.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty,
+              value.range(of: "^[a-z][a-z0-9+.-]*$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return value
+    }
 
     @discardableResult
     public static func unzipFile(
@@ -144,22 +174,24 @@ public class DMPFileUtil {
     }
 
     public static func vPathFromSandboxPath(sandboxPath: String, appId: String) -> String {
+        let scheme = fileURLScheme(forAppId: appId)
         let storeDirectory: String = DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId)
         if sandboxPath.hasPrefix(storeDirectory) {
             let relativePath: String = sandboxPath.replacingOccurrences(of: storeDirectory, with: "")
-            return "\(DMPFileURLScheme)://usr\(relativePath)"
+            return "\(scheme)://usr\(relativePath)"
         }
         let resourceDirectory: String = DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId)
         let relativePath: String = sandboxPath
             .replacingOccurrences(of: resourceDirectory, with: "")
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let vPath: String = "\(DMPFileURLScheme)://\(relativePath)"
+        let vPath: String = "\(scheme)://\(relativePath)"
         return vPath
     }
 
     public static func sandboxPathFromVPath(from vPath: String, appId: String, version: String? = nil) -> String? {
         guard let components = URLComponents(string: vPath),
-              components.scheme?.lowercased() == DMPFileURLScheme,
+              let scheme = components.scheme?.lowercased(),
+              scheme == DMPFileURLScheme || scheme == fileURLScheme(forAppId: appId),
               components.user == nil,
               components.password == nil else {
             return nil

@@ -12,6 +12,7 @@ import WebKit
 public class DMPRender: DMPWebViewDelegate {
     private var webviewsMap: [Int: DMPWebview] = [:]
     private weak var app: DMPApp?
+    private weak var loggerDelegate: DMPWebViewLoggerDelegate?
 
     private lazy var invokeHandler: DMPWebViewInvoke = DMPWebViewInvoke(render: self)
     private lazy var publishHandler: DMPWebViewPublish = DMPWebViewPublish(render: self)
@@ -31,8 +32,17 @@ public class DMPRender: DMPWebViewDelegate {
             appName: appName,
             appId: app?.getAppId() ?? ""
         )
+        webview.setLoggerDelegate(loggerDelegate)
         webviewsMap[webview.getWebViewId()] = webview
         return webview
+    }
+
+    @MainActor
+    func setLoggerDelegate(_ delegate: DMPWebViewLoggerDelegate?) {
+        loggerDelegate = delegate
+        for webview in webviewsMap.values {
+            webview.setLoggerDelegate(delegate)
+        }
     }
 
     // Release WebView instance
@@ -150,15 +160,21 @@ public class DMPRender: DMPWebViewDelegate {
             await self?.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath)
 
             await MainActor.run { [weak self, weak webview] in
-                guard let self = self, let webview = webview else { return }
+                guard let self = self,
+                      let webview = webview,
+                      self.webviewsMap[webViewId] === webview else {
+                    return
+                }
                 self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath)
 
                 self.scheduleDOMDiagnostics(webview: webview, webViewId: webViewId)
-
-                webview.poolState = .ready
-                DMPLog.render.info("webview id=\(webViewId) marked as ready")
+                DMPLog.render.info("webview id=\(webViewId) resource preparation requested")
             }
         }
+    }
+
+    public func webViewContentProcessDidTerminate(webViewId: Int) {
+        app?.container?.restartPageStartup(webViewId: webViewId)
     }
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load failure event

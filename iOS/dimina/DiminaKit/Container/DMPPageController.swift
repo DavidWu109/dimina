@@ -24,6 +24,8 @@ public class DMPPageController: UIViewController {
     private weak var app: DMPApp?
     private let isRoot: Bool
     private let showsLaunchLoading: Bool
+    private var launchTimingID = ""
+    private var launchStartedAt: TimeInterval = 0
 
     // WebView related
     private var webview: DMPWebview
@@ -50,6 +52,7 @@ public class DMPPageController: UIViewController {
     private var isWebViewDestroyed = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
+    private var isHomeButtonHiddenByAPI = false
     /// 页面自己的 navStyle 缓存，首次 setupNavigationBar 时写入，避免被 navigator 栈操作污染
     private var cachedNavStyle: [String: Any]?
 
@@ -66,6 +69,16 @@ public class DMPPageController: UIViewController {
         pagePath: String, query: [String: Any]?, appConfig: DMPAppConfig, app: DMPApp?,
         navigator: DMPNavigator?, isRoot: Bool = false, showsLaunchLoading: Bool = false
     ) {
+        #if DEBUG
+        let launchTimingID = String(UUID().uuidString.prefix(8))
+        let launchStartedAt = ProcessInfo.processInfo.systemUptime
+        DMPLog.render.info(
+            "pageLaunch id=\(launchTimingID) stage=container_init_start elapsedMs=0 path=\(pagePath)"
+        )
+
+        self.launchTimingID = launchTimingID
+        self.launchStartedAt = launchStartedAt
+        #endif
         self.pagePath = pagePath
         self.query = query
         self.appConfig = appConfig
@@ -82,6 +95,7 @@ public class DMPPageController: UIViewController {
         // Configure WebView - Configure immediately to ensure page path is set correctly
         configWebView()
         observeLoadingState()
+        logLaunchStage("container_init_end")
     }
 
     required init?(coder: NSCoder) {
@@ -105,6 +119,7 @@ public class DMPPageController: UIViewController {
     // View loaded
     public override func viewDidLoad() {
         super.viewDidLoad()
+        logLaunchStage("view_did_load_start")
 
         view.backgroundColor = .white
         setupCustomNavigationBar()
@@ -135,6 +150,8 @@ public class DMPPageController: UIViewController {
 
         // Set navigation bar style
         setupNavigationBar()
+        startResourcePreloadingIfNeeded()
+        logLaunchStage("view_did_load_end")
     }
 
     // View will appear
@@ -157,15 +174,18 @@ public class DMPPageController: UIViewController {
             miniProgramMenuContainerView.superview?.bringSubviewToFront(miniProgramMenuContainerView)
         }
         loadingView?.superview?.bringSubviewToFront(loadingView!)
+        webview.refreshHostReadiness()
     }
 
     // View did appear
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        startLoadingIfNeeded()
+        logLaunchStage("view_did_appear")
+        webview.refreshHostReadiness()
+        startResourcePreloadingIfNeeded()
     }
 
-    private func startLoadingIfNeeded() {
+    private func startResourcePreloadingIfNeeded() {
         guard !hasStartedLoading, !isWebViewDestroyed else {
             return
         }
@@ -177,7 +197,19 @@ public class DMPPageController: UIViewController {
         #if DEBUG
         enableVConsole = true
         #endif
+        logLaunchStage("load_page_frame_start")
         webview.loadPageFrame(enableVConsole: enableVConsole)
+    }
+
+    private func logLaunchStage(_ stage: String) {
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - launchStartedAt) * 1_000
+        let formattedElapsed = String(format: "%.3f", elapsedMs)
+        DMPLog.render.info(
+            "pageLaunch id=\(launchTimingID) stage=\(stage) "
+                + "elapsedMs=\(formattedElapsed) path=\(pagePath)"
+        )
+        #endif
     }
 
     public func preparePageLoading(in parentController: UIViewController) {
@@ -206,6 +238,15 @@ public class DMPPageController: UIViewController {
                 }
             }
         }
+
+        webview.onHostReadinessChanged = { [weak self] isReady in
+            guard let self = self, !self.isWebViewDestroyed else { return }
+            self.app?.container?.setRenderHostReady(
+                webViewId: self.webview.getWebViewId(),
+                isReady: isReady
+            )
+        }
+        webview.refreshHostReadiness()
     }
 
     private func showPageLoadingIfNeeded() {
@@ -319,9 +360,9 @@ public class DMPPageController: UIViewController {
                 ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
         )
         let capsuleTrailing = max(windowWidth - capsuleRight, 0)
-        let backButtonWidth = backButton.widthAnchor.constraint(equalToConstant: 44)
+        let backButtonWidth = backButton.widthAnchor.constraint(equalToConstant: 40)
         backButtonWidth.priority = .defaultHigh
-        let homeButtonWidth = homeButton.widthAnchor.constraint(equalToConstant: 44)
+        let homeButtonWidth = homeButton.widthAnchor.constraint(equalToConstant: 40)
         homeButtonWidth.priority = .defaultHigh
 
         view.addSubview(navigationBar)
@@ -341,7 +382,7 @@ public class DMPPageController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: navigationBar.bottomAnchor),
             contentView.heightAnchor.constraint(equalToConstant: DMPMenuButtonLayout.navigationBarContentHeight),
 
-            leadingControls.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            leadingControls.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
             leadingControls.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             leadingControls.heightAnchor.constraint(equalToConstant: 44),
 
@@ -597,6 +638,21 @@ public class DMPPageController: UIViewController {
         self.cachedNavStyle = navStyle
     }
 
+    public func mergeCachedNavStyle(_ updates: [String: Any]) {
+        var navStyle = cachedNavStyle
+            ?? app?.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
+            ?? [:]
+        for (key, value) in updates {
+            navStyle[key] = value
+        }
+        cachedNavStyle = navStyle
+    }
+
+    public func hideHomeButton() {
+        isHomeButtonHiddenByAPI = true
+        updateCustomNavigationButtons(darkStyle: usesLightNavigationForeground)
+    }
+
     public func updateNavigationTitle(_ title: String) {
         let nextTitle = title.isEmpty ? appConfig.appName : title
         customNavigationTitleLabel?.text = nextTitle
@@ -623,15 +679,15 @@ public class DMPPageController: UIViewController {
             return
         }
 
-        let showsHome = miniProgramHomePath != nil
+        let showsHome = shouldShowHomeButton
         backButton.isHidden = isRoot
         customNavigationHomeButton?.isHidden = !showsHome
 
         backButton.accessibilityLabel = "Back"
         if let bundle = DMPResourceManager.assetsBundle {
-            let imageName = darkStyle ? "arrow-back-dark" : "arrow-back-light"
-            if let image = UIImage(named: imageName, in: bundle, compatibleWith: nil) {
-                backButton.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
+            if let image = UIImage(named: "mini-program-back", in: bundle, compatibleWith: nil) {
+                backButton.tintColor = darkStyle ? .white : .black
+                backButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
                 backButton.setTitle(nil, for: .normal)
             } else {
                 backButton.setImage(nil, for: .normal)
@@ -646,10 +702,10 @@ public class DMPPageController: UIViewController {
 
         if let homeButton = customNavigationHomeButton {
             homeButton.accessibilityLabel = "Back to mini program home"
-            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-            if let image = UIImage(systemName: "house", withConfiguration: configuration) {
+            if let bundle = DMPResourceManager.assetsBundle,
+               let image = UIImage(named: "mini-program-home", in: bundle, compatibleWith: nil) {
                 homeButton.tintColor = darkStyle ? .white : .black
-                homeButton.setImage(image, for: .normal)
+                homeButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
                 homeButton.setTitle(nil, for: .normal)
             } else {
                 homeButton.setImage(nil, for: .normal)
@@ -659,10 +715,44 @@ public class DMPPageController: UIViewController {
         }
     }
 
+    private var usesLightNavigationForeground: Bool {
+        return (cachedNavStyle?["navigationBarTextStyle"] as? String) == "white"
+    }
+
+    private var isEntryPage: Bool {
+        guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
+            return false
+        }
+        let entryRoute = DMPPageRoute(path: rawEntryPath)
+        let currentRoute = DMPPageRoute(path: pagePath)
+        return !entryRoute.normalizedPagePath.isEmpty
+            && entryRoute.normalizedPagePath == currentRoute.normalizedPagePath
+    }
+
+    private var shouldShowHomeButton: Bool {
+        guard !isHomeButtonHiddenByAPI,
+              !isEntryPage,
+              app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) != true
+        else {
+            return false
+        }
+
+        if isRoot {
+            return true
+        }
+        if (cachedNavStyle?["homeButton"] as? Bool) == true {
+            return true
+        }
+        return appConfig.showsHomeButtonOnStackedPages
+    }
+
     /// Any non-entry page can return directly to the configured mini-program home.
     /// The entry root has no leading controls, root deep links show only Home,
     /// and stacked non-entry pages show Back and Home together.
     private var miniProgramHomePath: String? {
+        guard shouldShowHomeButton else {
+            return nil
+        }
         guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
             return nil
         }
@@ -1091,6 +1181,7 @@ public class DMPPageController: UIViewController {
         
         DMPLogger.debug("🗑️ DMPPageController: Destroy WebView (ID: \(webview.getWebViewId()))")
         isWebViewDestroyed = true
+        webview.onHostReadinessChanged = nil
         
         // Notify page unload
         if let app = app {
@@ -1101,6 +1192,7 @@ public class DMPPageController: UIViewController {
                 ]
             ])
             DMPChannelProxy.containerToService(msg: msg, app: app)
+            app.container?.clearPageStartupState(webViewId: webview.getWebViewId())
         }
         
         // Release WebView back to pool

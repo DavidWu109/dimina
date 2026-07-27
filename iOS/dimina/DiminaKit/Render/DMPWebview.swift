@@ -9,6 +9,39 @@ import Foundation
 import WebKit
 import SwiftUI
 
+private final class DMPHostAwareWebView: WKWebView {
+    var onHostReadinessChanged: ((Bool) -> Void)? {
+        didSet {
+            notifyHostReadinessIfNeeded(force: true)
+        }
+    }
+
+    private var lastReportedHostReadiness: Bool?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        notifyHostReadinessIfNeeded()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        notifyHostReadinessIfNeeded()
+    }
+
+    func refreshHostReadiness() {
+        notifyHostReadinessIfNeeded(force: true)
+    }
+
+    private func notifyHostReadinessIfNeeded(force: Bool = false) {
+        let isReady = window != nil && bounds.width > 0 && bounds.height > 0
+        guard force || lastReportedHostReadiness != isReady else {
+            return
+        }
+        lastReportedHostReadiness = isReady
+        onHostReadinessChanged?(isReady)
+    }
+}
+
 /// WebView state enum
 public enum DMPWebViewState {
     case available          // Available state, can be reused
@@ -52,6 +85,7 @@ public enum DMPWebViewState {
 public protocol DMPWebViewDelegate: AnyObject {
     func webViewDidFinishLoad(webViewId: Int)
     func webViewDidFailLoad(webViewId: Int, error: Error)
+    func webViewContentProcessDidTerminate(webViewId: Int)
 }
 
 public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler, ObservableObject {
@@ -80,6 +114,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     public var appName: String
     public var onLoadingStateChanged: ((Bool) -> Void)?
+    public var onHostReadinessChanged: ((Bool) -> Void)?
 
     // Publish notification when state changes
     @Published public var poolState: DMPWebViewState = .available {
@@ -98,7 +133,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     public init(delegate: DMPWebViewDelegate?, appName: String, appId: String, processPool: WKProcessPool? = nil) {
         let (config, handlers) = DMPWebview.defaultConfiguration(appId: appId, processPool: processPool)
 
-        self.webView = WKWebView(frame: .zero, configuration: config)
+        self.webView = DMPHostAwareWebView(frame: .zero, configuration: config)
         self.schemeHandlers = handlers
         #if DEBUG
         if #available(iOS 16.4, *) {
@@ -114,6 +149,12 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         super.init()
 
         self.webView.navigationDelegate = self
+
+        if let hostAwareWebView = self.webView as? DMPHostAwareWebView {
+            hostAwareWebView.onHostReadinessChanged = { [weak self] isReady in
+                self?.onHostReadinessChanged?(isReady)
+            }
+        }
 
         // Apply WebView instance optimization
         DMPWebViewOptimizer.shared.optimizeWebViewInstance(self.webView)
@@ -131,6 +172,9 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     // Set log handler delegate
     public func setLoggerDelegate(_ delegate: DMPWebViewLoggerDelegate?) {
+        if logger == nil, delegate != nil {
+            logger = DMPWebViewLogger(webView: webView, webViewId: webViewId)
+        }
         self.logger?.setDelegate(delegate)
     }
 
@@ -307,6 +351,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     /// 重载后可能进入异常状态。先以最小改动重载 render 端，service 端幂等性待观察。
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         DMPLog.render.error("webContentProcessDidTerminate id=\(webViewId) pagePath=\(pagePath) — reloading pageFrame")
+        delegate?.webViewContentProcessDidTerminate(webViewId: webViewId)
         poolState = .loading
         loadPageFrame()
     }
@@ -338,6 +383,10 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     // Get underlying WKWebView
     public func getWebView() -> WKWebView {
         return webView
+    }
+
+    public func refreshHostReadiness() {
+        (webView as? DMPHostAwareWebView)?.refreshHostReadiness()
     }
 
     // Get WebView's unique ID

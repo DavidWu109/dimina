@@ -27,6 +27,7 @@ public class DMPApp {
     private var isLaunching = false
     private var isDestroyed = false
     private var developerPreviewClient: DMPDeveloperPreviewClient?
+    private var developerDebugClient: DMPDeveloperDebugClient?
     /// Host API registrations belong to the app instance, not to one container
     /// launch. `appWithConfig` may return the same app when a mini app is opened
     /// again, while every launch rebuilds `containerApi`.
@@ -36,6 +37,7 @@ public class DMPApp {
         self.appConfig = appConfig
         self.appId = appConfig.appId
         self.appIndex = appIndex
+        DMPFileUtil.setFileURLScheme(appConfig.fileURLScheme, forAppId: appConfig.appId)
     }
 
     @MainActor
@@ -58,7 +60,7 @@ public class DMPApp {
         }
         showLoading()
 
-        let shouldPrepareBundledApp = developerPreviewClient == nil
+        let shouldPrepareBundledApp = developerPreviewClient == nil && developerDebugClient == nil
         await Self.prepareBundleResources(appId: appId, prepareApp: shouldPrepareBundledApp)
 
         initBundle()
@@ -67,6 +69,7 @@ public class DMPApp {
         initContainer()
         DMPLog.app.info("initContainer done")
 
+        developerDebugClient?.attachLogSources()
         await initService()
         DMPLog.app.info("initService done")
 
@@ -83,6 +86,7 @@ public class DMPApp {
         }
 
         initRender()
+        developerDebugClient?.attachLogSources()
         DMPLog.app.info("initRender done")
 
         await openPage(launchConfig: launchConfig)
@@ -91,6 +95,7 @@ public class DMPApp {
         hideLoading()
         DMPLog.app.info("launch finished")
         developerPreviewClient?.start()
+        developerDebugClient?.start()
     }
 
     public func initService() async {
@@ -186,7 +191,7 @@ public class DMPApp {
         DMPLog.bundle.debug("initBundle, appId=\(appId)")
         DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         DMPResourceManager.prepareSdk()
-        if developerPreviewClient == nil {
+        if developerPreviewClient == nil && developerDebugClient == nil {
             DMPResourceManager.prepareApp(appId: appId)
         }
         // 如果有 versionCode，也确保版本目录的结构
@@ -546,8 +551,18 @@ public class DMPApp {
     /// Enables the authenticated QDMP preview session prepared before launch.
     /// Debug hosts call this before `launch`; release hosts never opt in.
     public func configureDeveloperPreview(_ session: DMPDeveloperPreviewSession) {
+        developerDebugClient?.stop()
+        developerDebugClient = nil
         developerPreviewClient?.stop()
         developerPreviewClient = DMPDeveloperPreviewClient.attach(session: session, to: self)
+    }
+
+    /// Enables the developer-tool WebSocket channel for archive previews.
+    public func configureDeveloperDebug(_ session: DMPDeveloperDebugSession) {
+        developerPreviewClient?.stop()
+        developerPreviewClient = nil
+        developerDebugClient?.stop()
+        developerDebugClient = DMPDeveloperDebugClient.attach(session: session, to: self)
     }
 
     /// Replaces only live mini-app stylesheet links. The service VM, page
@@ -585,9 +600,12 @@ public class DMPApp {
         DMPLog.app.info("destroy, appId=\(appId)")
         developerPreviewClient?.stop()
         developerPreviewClient = nil
+        developerDebugClient?.stop()
+        developerDebugClient = nil
 
         BluetoothAPIManager.shared.clearApp(appId)
         LocalNetworkAPIManager.shared.clearApp(appId)
+        DMPFileUtil.removeFileURLScheme(forAppId: appId)
 
         // Clear WebView cache pool (execute on main thread)
         Task { @MainActor in

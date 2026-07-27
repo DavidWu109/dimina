@@ -24,7 +24,12 @@ public enum LogLevel: Int {
     }
 }
 
+protocol DMPEngineLogDelegate: AnyObject {
+    func engineDidLog(level: LogLevel, message: String)
+}
+
 public class DMPEngineLog {
+    static weak var delegate: DMPEngineLogDelegate?
     
     public static func injectConsole(to context: JSContext) {
         let console = JSValue(newObjectIn: context)
@@ -60,6 +65,7 @@ public class DMPEngineLog {
     private static func printLog(_ level: LogLevel, values: [JSValue]) {
         let stringValues = values.map { formatJSValue($0) }
         let message = stringValues.joined(separator: " ")
+        delegate?.engineDidLog(level: level, message: message)
 
         switch level {
         case .log, .info:
@@ -135,6 +141,5 @@ public class DMPEngineLog {
         return value.toString() ?? "Unknown"
     }
 }
-
 
 

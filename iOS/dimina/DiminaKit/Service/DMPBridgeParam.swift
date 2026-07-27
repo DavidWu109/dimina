@@ -74,6 +74,10 @@ public class DMPBridgeParam {
             return param
         }
 
+        if let map = rawValue as? DMPMap {
+            return DMPBridgeParam(value: map.toDictionary())
+        }
+
         return DMPBridgeParam(value: rawValue)
     }
 
