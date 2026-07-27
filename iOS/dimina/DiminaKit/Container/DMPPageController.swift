@@ -14,6 +14,12 @@ import WebKit
 /// It directly integrates the functionality of both DMPPage and DMPViewController
 public class DMPPageController: UIViewController {
 
+    private enum LeadingButtonStyle: Equatable {
+        case hidden
+        case back
+        case close
+    }
+
     // Weak reference to the navigator
     private weak var navigator: DMPNavigator?
 
@@ -35,11 +41,13 @@ public class DMPPageController: UIViewController {
     private var customNavigationTitleLabel: UILabel?
     private var customNavigationBackButton: UIButton?
     private var customNavigationHomeButton: UIButton?
+    private var customNavigationControlsView: UIView?
     private var customNavigationCapsuleView: UIView?
     private var customNavigationCapsuleMoreButton: UIButton?
     private var customNavigationCapsuleCloseButton: UIButton?
     private var customNavigationCapsuleSeparatorView: UIView?
     private weak var pageCapsuleProvider: DMPPageCapsuleProvider?
+    private weak var pageNavigationControlsProvider: DMPPageNavigationControlsProvider?
     private var isUsingHostCapsule = false
     private var miniProgramMenuContainerView: UIView?
     private var isClosingMiniProgram = false
@@ -304,19 +312,61 @@ public class DMPPageController: UIViewController {
         let contentView = UIView()
         contentView.translatesAutoresizingMaskIntoConstraints = false
 
-        let backButton = UIButton(type: .custom)
-        backButton.translatesAutoresizingMaskIntoConstraints = false
-        backButton.addTarget(self, action: #selector(customBackButtonTapped), for: .touchUpInside)
+        let navigationControlsProvider = app?.pageNavigationControlsProvider
+        let navigationControlsContext = DMPPageNavigationControlsContext(
+            appId: appConfig.appId,
+            appName: appConfig.appName,
+            pagePath: pagePath,
+            query: query ?? [:],
+            back: { [weak self] in
+                self?.navigator?.handleBackButtonTapped()
+            },
+            home: { [weak self] in
+                self?.customHomeButtonTapped()
+            },
+            close: { [weak self] in
+                self?.capsuleCloseButtonTapped()
+            }
+        )
+        let leadingControls: UIView
+        let fallbackBackButton: UIButton?
+        let fallbackHomeButton: UIButton?
+        if let providedView = navigationControlsProvider?.makeNavigationControls(
+            for: navigationControlsContext
+        ) {
+            providedView.translatesAutoresizingMaskIntoConstraints = false
+            leadingControls = providedView
+            fallbackBackButton = nil
+            fallbackHomeButton = nil
+            pageNavigationControlsProvider = navigationControlsProvider
+        } else {
+            let backButton = UIButton(type: .custom)
+            backButton.translatesAutoresizingMaskIntoConstraints = false
+            backButton.addTarget(
+                self,
+                action: #selector(customBackButtonTapped),
+                for: .touchUpInside
+            )
 
-        let homeButton = UIButton(type: .custom)
-        homeButton.translatesAutoresizingMaskIntoConstraints = false
-        homeButton.addTarget(self, action: #selector(customHomeButtonTapped), for: .touchUpInside)
+            let homeButton = UIButton(type: .custom)
+            homeButton.translatesAutoresizingMaskIntoConstraints = false
+            homeButton.addTarget(
+                self,
+                action: #selector(customHomeButtonTapped),
+                for: .touchUpInside
+            )
 
-        let leadingControls = UIStackView(arrangedSubviews: [backButton, homeButton])
-        leadingControls.translatesAutoresizingMaskIntoConstraints = false
-        leadingControls.axis = .horizontal
-        leadingControls.alignment = .center
-        leadingControls.spacing = 0
+            let fallbackControls = UIStackView(arrangedSubviews: [backButton, homeButton])
+            fallbackControls.translatesAutoresizingMaskIntoConstraints = false
+            fallbackControls.axis = .horizontal
+            fallbackControls.alignment = .center
+            fallbackControls.spacing = 0
+            leadingControls = fallbackControls
+            fallbackBackButton = backButton
+            fallbackHomeButton = homeButton
+        }
+        leadingControls.setContentHuggingPriority(.required, for: .horizontal)
+        leadingControls.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -360,18 +410,13 @@ public class DMPPageController: UIViewController {
                 ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
         )
         let capsuleTrailing = max(windowWidth - capsuleRight, 0)
-        let backButtonWidth = backButton.widthAnchor.constraint(equalToConstant: 40)
-        backButtonWidth.priority = .defaultHigh
-        let homeButtonWidth = homeButton.widthAnchor.constraint(equalToConstant: 40)
-        homeButtonWidth.priority = .defaultHigh
-
         view.addSubview(navigationBar)
         view.addSubview(capsuleView)
         navigationBar.addSubview(contentView)
         contentView.addSubview(leadingControls)
         contentView.addSubview(titleLabel)
 
-        NSLayoutConstraint.activate([
+        var navigationConstraints = [
             navigationBar.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -386,11 +431,6 @@ public class DMPPageController: UIViewController {
             leadingControls.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             leadingControls.heightAnchor.constraint(equalToConstant: 44),
 
-            backButtonWidth,
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-            homeButtonWidth,
-            homeButton.heightAnchor.constraint(equalToConstant: 44),
-
             titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingControls.trailingAnchor, constant: 8),
@@ -403,12 +443,26 @@ public class DMPPageController: UIViewController {
             capsuleView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -capsuleTrailing),
             capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth),
             capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight),
-        ])
+        ]
+        if let fallbackBackButton, let fallbackHomeButton {
+            let backButtonWidth = fallbackBackButton.widthAnchor.constraint(equalToConstant: 40)
+            backButtonWidth.priority = .defaultHigh
+            let homeButtonWidth = fallbackHomeButton.widthAnchor.constraint(equalToConstant: 40)
+            homeButtonWidth.priority = .defaultHigh
+            navigationConstraints.append(contentsOf: [
+                backButtonWidth,
+                fallbackBackButton.heightAnchor.constraint(equalToConstant: 44),
+                homeButtonWidth,
+                fallbackHomeButton.heightAnchor.constraint(equalToConstant: 44),
+            ])
+        }
+        NSLayoutConstraint.activate(navigationConstraints)
 
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
-        customNavigationBackButton = backButton
-        customNavigationHomeButton = homeButton
+        customNavigationBackButton = fallbackBackButton
+        customNavigationHomeButton = fallbackHomeButton
+        customNavigationControlsView = leadingControls
         customNavigationTitleLabel = titleLabel
         customNavigationCapsuleView = capsuleView
         isUsingHostCapsule = usesHostCapsule
@@ -675,17 +729,46 @@ public class DMPPageController: UIViewController {
     }
 
     private func updateCustomNavigationButtons(darkStyle: Bool) {
+        let showsHome = shouldShowHomeButton
+        let currentLeadingButtonStyle = leadingButtonStyle
+
+        if let controlsView = customNavigationControlsView,
+           let controlsProvider = pageNavigationControlsProvider {
+            let leadingAction: DMPPageLeadingAction
+            switch currentLeadingButtonStyle {
+            case .hidden:
+                leadingAction = .hidden
+            case .back:
+                leadingAction = .back
+            case .close:
+                leadingAction = .close
+            }
+            controlsProvider.updateNavigationControls(
+                controlsView,
+                style: DMPPageNavigationControlsStyle(
+                    leadingAction: leadingAction,
+                    showsHome: showsHome,
+                    foregroundColor: darkStyle ? .white : .black
+                )
+            )
+            return
+        }
+
         guard let backButton = customNavigationBackButton else {
             return
         }
 
-        let showsHome = shouldShowHomeButton
-        backButton.isHidden = isRoot
+        backButton.isHidden = currentLeadingButtonStyle == .hidden
         customNavigationHomeButton?.isHidden = !showsHome
 
-        backButton.accessibilityLabel = "Back"
-        if let bundle = DMPResourceManager.assetsBundle {
-            if let image = UIImage(named: "mini-program-back", in: bundle, compatibleWith: nil) {
+        switch currentLeadingButtonStyle {
+        case .hidden:
+            backButton.setImage(nil, for: .normal)
+            backButton.setTitle(nil, for: .normal)
+        case .back:
+            backButton.accessibilityLabel = "Back"
+            if let bundle = DMPResourceManager.assetsBundle,
+               let image = UIImage(named: "mini-program-back", in: bundle, compatibleWith: nil) {
                 backButton.tintColor = darkStyle ? .white : .black
                 backButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
                 backButton.setTitle(nil, for: .normal)
@@ -694,10 +777,18 @@ public class DMPPageController: UIViewController {
                 backButton.setTitle("back", for: .normal)
                 backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
             }
-        } else {
-            backButton.setImage(nil, for: .normal)
-            backButton.setTitle("back", for: .normal)
-            backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+        case .close:
+            backButton.accessibilityLabel = "Close mini program"
+            let configuration = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+            if let image = UIImage(systemName: "xmark", withConfiguration: configuration) {
+                backButton.tintColor = darkStyle ? .white : .black
+                backButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+                backButton.setTitle(nil, for: .normal)
+            } else {
+                backButton.setImage(nil, for: .normal)
+                backButton.setTitle("close", for: .normal)
+                backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+            }
         }
 
         if let homeButton = customNavigationHomeButton {
@@ -729,6 +820,16 @@ public class DMPPageController: UIViewController {
             && entryRoute.normalizedPagePath == currentRoute.normalizedPagePath
     }
 
+    /// The native leading control follows WeChat's page-stack semantics:
+    /// the regular entry root has no control, a direct deep-link root closes
+    /// the mini program, and pages pushed inside the mini program navigate back.
+    private var leadingButtonStyle: LeadingButtonStyle {
+        if isRoot {
+            return isEntryPage ? .hidden : .close
+        }
+        return .back
+    }
+
     private var shouldShowHomeButton: Bool {
         guard !isHomeButtonHiddenByAPI,
               !isEntryPage,
@@ -743,12 +844,11 @@ public class DMPPageController: UIViewController {
         if (cachedNavStyle?["homeButton"] as? Bool) == true {
             return true
         }
-        return appConfig.showsHomeButtonOnStackedPages
+        return false
     }
 
-    /// Any non-entry page can return directly to the configured mini-program home.
-    /// The entry root has no leading controls, root deep links show only Home,
-    /// and stacked non-entry pages show Back and Home together.
+    /// Direct deep-link roots show Home by default. Stacked pages only show it
+    /// when the page opts in with `homeButton`, and `wx.hideHomeButton()` wins.
     private var miniProgramHomePath: String? {
         guard shouldShowHomeButton else {
             return nil
@@ -768,7 +868,14 @@ public class DMPPageController: UIViewController {
     }
 
     @objc private func customBackButtonTapped() {
-        navigator?.handleBackButtonTapped()
+        switch leadingButtonStyle {
+        case .close:
+            capsuleCloseButtonTapped()
+        case .back:
+            navigator?.handleBackButtonTapped()
+        case .hidden:
+            break
+        }
     }
 
     @objc private func customHomeButtonTapped() {

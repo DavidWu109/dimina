@@ -23,6 +23,7 @@ public class DMPApp {
     public var containerApi: DMPContainerApi?
 
     private(set) var pageCapsuleProvider: DMPPageCapsuleProvider?
+    private(set) var pageNavigationControlsProvider: DMPPageNavigationControlsProvider?
 
     private var isLaunching = false
     private var isDestroyed = false
@@ -176,6 +177,30 @@ public class DMPApp {
         }
 
         pageCapsuleProvider = provider
+        return true
+    }
+
+    /// Registers host components for the native Back, Close, and Home controls.
+    /// The provider must be registered before `launch` and is scoped to this app.
+    @MainActor
+    @discardableResult
+    public func registerPageNavigationControlsProvider(
+        _ provider: DMPPageNavigationControlsProvider
+    ) -> Bool {
+        guard !isLaunching, container == nil, !isDestroyed else {
+            DMPLogger.debug(
+                "registerPageNavigationControlsProvider skipped: provider must be registered before launch"
+            )
+            return false
+        }
+        guard pageNavigationControlsProvider == nil else {
+            DMPLogger.debug(
+                "registerPageNavigationControlsProvider skipped: provider is already registered"
+            )
+            return false
+        }
+
+        pageNavigationControlsProvider = provider
         return true
     }
 
@@ -622,6 +647,7 @@ public class DMPApp {
         apiRegistrations.removeAll()
         render = nil
         pageCapsuleProvider = nil
+        pageNavigationControlsProvider = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 
