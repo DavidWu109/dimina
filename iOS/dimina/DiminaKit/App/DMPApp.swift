@@ -623,6 +623,7 @@ public class DMPApp {
         }
         isDestroyed = true
         DMPLog.app.info("destroy, appId=\(appId)")
+        navigator?.tearDownNavigation()
         developerPreviewClient?.stop()
         developerPreviewClient = nil
         developerDebugClient?.stop()

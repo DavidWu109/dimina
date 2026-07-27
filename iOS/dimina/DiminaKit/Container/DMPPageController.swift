@@ -29,6 +29,7 @@ public class DMPPageController: UIViewController {
     private let appConfig: DMPAppConfig
     private weak var app: DMPApp?
     private let isRoot: Bool
+    var isMiniProgramRoot: Bool { isRoot }
     private let showsLaunchLoading: Bool
     private var launchTimingID = ""
     private var launchStartedAt: TimeInterval = 0
@@ -58,6 +59,7 @@ public class DMPPageController: UIViewController {
 
     // State
     private var isWebViewDestroyed = false
+    private var interactivePopTransitionInProgress = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
     private var isHomeButtonHiddenByAPI = false
@@ -188,9 +190,16 @@ public class DMPPageController: UIViewController {
     // View did appear
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        interactivePopTransitionInProgress = false
+        navigator?.pageControllerDidAppear(self)
         logLaunchStage("view_did_appear")
         webview.refreshHostReadiness()
         startResourcePreloadingIfNeeded()
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        interactivePopTransitionInProgress = transitionCoordinator?.isInteractive == true
     }
 
     private func startResourcePreloadingIfNeeded() {
@@ -1270,11 +1279,21 @@ public class DMPPageController: UIViewController {
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         hidePageLoading()
-        
+
+        let completedInteractivePop = interactivePopTransitionInProgress && isMovingFromParent
+        let webViewId = webview.getWebViewId()
+        interactivePopTransitionInProgress = false
+
         // Notify lifecycle management when page completely disappears
         if isMovingFromParent {
             // Page is removed from navigation stack
             destroyWebView()
+        }
+
+        if completedInteractivePop {
+            navigator?.didCompleteInteractivePop(webViewId: webViewId)
+        } else {
+            navigator?.pageControllerDidDisappear(self)
         }
     }
     

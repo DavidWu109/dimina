@@ -24,6 +24,10 @@ public class DMPNavigator: NSObject {
     // 当前的导航控制器
     public private(set) weak var navigationController: UINavigationController?
 
+    // Dimina 与宿主共用 UINavigationController。保留宿主原始状态，
+    // 小程序根页禁止侧滑，二级页开放侧滑，离开小程序后再恢复。
+    private var hostInteractivePopGestureWasEnabled: Bool?
+
     // 页面记录
     private var pageRecords: [DMPPageRecord] = []
 
@@ -34,14 +38,18 @@ public class DMPNavigator: NSObject {
     }
 
     public func setup(navigationController: UINavigationController) {
+        restoreHostInteractivePopGestureIfNeeded()
         self.navigationController = navigationController
 
         objc_setAssociatedObject(
             navigationController, &navigatorAssociationKey, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
 
-        // 禁用系统返回手势
-        navigationController.interactivePopGestureRecognizer?.isEnabled = false
+        if let gesture = navigationController.interactivePopGestureRecognizer {
+            hostInteractivePopGestureWasEnabled = gesture.isEnabled
+            // launch 尚未建立第二个小程序页面，先按根页语义禁止。
+            gesture.isEnabled = false
+        }
     }
 
     /// 创建自定义返回按钮
@@ -381,5 +389,108 @@ public class DMPNavigator: NSObject {
     /// 给外部容器（如 DMPTabBarContainerController）追加 pageRecord 用。
     public func appendPageRecord(_ record: DMPPageRecord) {
         pageRecords.append(record)
+    }
+}
+
+// MARK: - Interactive pop gesture
+
+extension DMPNavigator {
+
+    /// Restores the gesture state owned by the host navigation controller.
+    /// Safe to call repeatedly, including from `DMPApp.destroy()`.
+    public func tearDownNavigation() {
+        let restore = { [weak self] in
+            guard let self else { return }
+            self.restoreHostInteractivePopGestureIfNeeded()
+            self.navigationController = nil
+        }
+
+        if Thread.isMainThread {
+            restore()
+        } else {
+            DispatchQueue.main.async(execute: restore)
+        }
+    }
+
+    /// Called after a mini-program page becomes the actually visible controller.
+    /// Root pages must not swipe into the host stack; pushed pages use UIKit's
+    /// interactive pop transition. The captured host state is only for restoration.
+    @MainActor
+    func pageControllerDidAppear(_ pageController: DMPPageController) {
+        guard getCurrentPageController() === pageController,
+              let gesture = navigationController?.interactivePopGestureRecognizer else {
+            return
+        }
+        gesture.isEnabled = !pageController.isMiniProgramRoot
+    }
+
+    /// Keeps host pages from inheriting the root mini-program's disabled gesture.
+    @MainActor
+    func pageControllerDidDisappear(_ pageController: DMPPageController) {
+        guard getCurrentPageController() !== pageController else {
+            return
+        }
+        guard let topViewController = navigationController?.topViewController,
+              !(topViewController is DMPPageController),
+              !(topViewController is DMPTabBarContainerController) else {
+            return
+        }
+        applyHostInteractivePopGestureState()
+    }
+
+    /// UIKit owns the visual interactive transition. Once it really completes,
+    /// reconcile Dimina's logical stack and page lifecycle with the popped VC.
+    /// A cancelled gesture never reaches this method.
+    @MainActor
+    func didCompleteInteractivePop(webViewId: Int) {
+        guard let poppedIndex = pageRecords.lastIndex(where: { $0.webViewId == webViewId }) else {
+            updateInteractivePopGestureForVisiblePage()
+            return
+        }
+
+        pageRecords.removeSubrange(poppedIndex...)
+        if let visiblePageRecord = pageRecords.last {
+            pageLifecycle?.onShow(webviewId: visiblePageRecord.webViewId)
+        }
+        updateInteractivePopGestureForVisiblePage()
+    }
+
+    @MainActor
+    private func updateInteractivePopGestureForVisiblePage() {
+        guard let pageController = getCurrentPageController() else {
+            applyHostInteractivePopGestureState()
+            return
+        }
+        pageControllerDidAppear(pageController)
+    }
+
+    private func applyHostInteractivePopGestureState() {
+        guard let gesture = navigationController?.interactivePopGestureRecognizer,
+              let wasEnabled = hostInteractivePopGestureWasEnabled else {
+            return
+        }
+        gesture.isEnabled = wasEnabled
+    }
+
+    private func restoreHostInteractivePopGestureIfNeeded() {
+        guard let navigationController else {
+            hostInteractivePopGestureWasEnabled = nil
+            return
+        }
+
+        applyHostInteractivePopGestureState()
+        if let associatedNavigator = objc_getAssociatedObject(
+            navigationController,
+            &navigatorAssociationKey
+        ) as? DMPNavigator,
+           associatedNavigator === self {
+            objc_setAssociatedObject(
+                navigationController,
+                &navigatorAssociationKey,
+                nil,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+        hostInteractivePopGestureWasEnabled = nil
     }
 }
