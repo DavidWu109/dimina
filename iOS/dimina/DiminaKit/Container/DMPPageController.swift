@@ -829,12 +829,14 @@ public class DMPPageController: UIViewController {
             && entryRoute.normalizedPagePath == currentRoute.normalizedPagePath
     }
 
-    /// The native leading control follows WeChat's page-stack semantics:
-    /// the regular entry root has no control, a direct deep-link root closes
-    /// the mini program, and pages pushed inside the mini program navigate back.
+    /// The native leading control follows mini-program page-stack semantics:
+    /// root pages have no leading control because there is no previous page,
+    /// while pages pushed inside the mini program navigate back.
+    /// A direct deep-link root exposes Home separately through
+    /// `shouldShowHomeButton`; closing remains available in the right capsule.
     private var leadingButtonStyle: LeadingButtonStyle {
         if isRoot {
-            return isEntryPage ? .hidden : .close
+            return .hidden
         }
         return .back
     }
