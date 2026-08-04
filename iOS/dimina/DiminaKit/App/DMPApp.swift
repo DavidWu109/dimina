@@ -751,6 +751,7 @@ public class DMPApp {
         BluetoothAPIManager.shared.clearApp(appId)
         LocalNetworkAPIManager.shared.clearApp(appId)
         ScreenAPIManager.shared.clearApp(appId)
+        AudioAPI.clearApp(appId)
         DMPFileUtil.removeFileURLScheme(forAppId: appId)
 
         // Clear WebView cache pool (execute on main thread)
