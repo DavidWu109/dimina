@@ -13,6 +13,36 @@ import UIKit
 // 用于存储关联对象的键
 private var navigatorAssociationKey: UInt8 = 0
 
+/// A root page that Dimina has finished preparing but has not yet made visible.
+///
+/// Embedded hosts can install `rootViewController` into their own navigation
+/// stack and then ask `DMPApp` to activate the launch. This keeps the initial
+/// host transition under one owner's control while preserving Dimina's page
+/// lifecycle and internal navigation after the handoff.
+public final class DMPPreparedLaunch {
+    public let rootViewController: UIViewController
+    public let launchID: UUID
+
+    fileprivate weak var navigator: DMPNavigator?
+    fileprivate let firstPageController: DMPPageController
+    fileprivate let pageRecord: DMPPageRecord
+    fileprivate var isActivated = false
+    fileprivate var isCancelled = false
+
+    fileprivate init(
+        rootViewController: UIViewController,
+        firstPageController: DMPPageController,
+        pageRecord: DMPPageRecord,
+        navigator: DMPNavigator
+    ) {
+        self.rootViewController = rootViewController
+        self.firstPageController = firstPageController
+        self.pageRecord = pageRecord
+        self.navigator = navigator
+        self.launchID = UUID()
+    }
+}
+
 /// DMPNavigator 是一个导航管理器，用于接管整个应用的导航动作
 public class DMPNavigator: NSObject {
     // app 弱引用
@@ -80,27 +110,27 @@ public class DMPNavigator: NSObject {
         }
     }
 
-    /// 启动到指定页面。如果 path 是 app-config.json tabBar.list 里的页面，
-    /// 创建 DMPTabBarContainerController（持有所有 tab pages）作为根；否则直接推 DMPPageController。
+    /// Prepares the initial page without mutating the host navigation stack.
+    /// If path is a tab page, the returned root is a
+    /// DMPTabBarContainerController; otherwise it is a DMPPageController.
     @MainActor
-    public func launch(to path: String, query: [String: Any]? = nil, animated: Bool = true) async {
-        DMPLog.app.info("DMPNavigator launch path=\(path) navController=\(navigationController != nil)")
-        guard let navigationController = navigationController else {
-            DMPLog.app.error("DMPNavigator launch: navigationController not set or released")
-            return
+    public func prepareLaunch(
+        to path: String,
+        query: [String: Any]? = nil
+    ) async throws -> DMPPreparedLaunch {
+        DMPLog.app.info("DMPNavigator prepareLaunch path=\(path)")
+        guard let app, let appConfig = app.getAppConfig() else {
+            throw DMPLaunchError.invalidAppState
         }
-        DMPLog.app.debug("nav stack before push: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
-
-        pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
 
         // 检查是否为 tab 页面 → 走容器路径
-        let tabBarConfig = app?.getBundleAppConfig()?.tabBar
+        let tabBarConfig = app.getBundleAppConfig()?.tabBar
         let isTabPage = tabBarConfig?.contains(pagePath: path) ?? false
 
         let rootController: UIViewController
         let firstPageController: DMPPageController
 
-        if isTabPage, let tabBarConfig = tabBarConfig, let app = app {
+        if isTabPage, let tabBarConfig {
             let container = DMPTabBarContainerController(
                 tabBarConfig: tabBarConfig,
                 initialPagePath: path,
@@ -115,7 +145,7 @@ public class DMPNavigator: NSObject {
             firstPageController = DMPPageController(
                 pagePath: path,
                 query: query,
-                appConfig: app!.getAppConfig()!,
+                appConfig: appConfig,
                 app: app,
                 navigator: self,
                 isRoot: true
@@ -125,20 +155,82 @@ public class DMPNavigator: NSObject {
 
         let pageRecord = DMPPageRecord(
             webViewId: firstPageController.getWebView().getWebViewId(),
-            fromWebViewId: app!.getCurrentWebViewId(), pagePath: path)
+            fromWebViewId: app.getCurrentWebViewId(), pagePath: path)
         pageRecord.query = query
-        pageRecord.navStyle = app?.getBundleAppConfig()?.getPageConfig(pagePath: path)
-        pageRecords.append(pageRecord)
+        pageRecord.navStyle = app.getBundleAppConfig()?.getPageConfig(pagePath: path)
 
-        await app?.service?.loadSubPackage(pagePath: path)
+        await app.service?.loadSubPackage(pagePath: path)
 
-        // setViewControllers 代替 push（避免转场动画时 push 被静默忽略）
+        return DMPPreparedLaunch(
+            rootViewController: rootController,
+            firstPageController: firstPageController,
+            pageRecord: pageRecord,
+            navigator: self
+        )
+    }
+
+    /// Mounts a prepared root for the standalone/legacy launch API.
+    @MainActor
+    func mountPreparedLaunch(_ preparedLaunch: DMPPreparedLaunch, animated: Bool) throws {
+        guard preparedLaunch.navigator === self,
+              !preparedLaunch.isCancelled,
+              let navigationController else {
+            throw DMPLaunchError.navigationControllerUnavailable
+        }
+
         var viewControllers = navigationController.viewControllers
-        viewControllers.append(rootController)
+        viewControllers.append(preparedLaunch.rootViewController)
         navigationController.setViewControllers(viewControllers, animated: animated)
-        DMPLog.app.debug("nav stack after launch: \(navigationController.viewControllers.map { String(describing: type(of: $0)) })")
+    }
 
-        pageLifecycle?.onShow(webviewId: firstPageController.getWebView().getWebViewId())
+    /// Activates page records and JS lifecycle after the host has mounted the
+    /// exact controller returned by `prepareLaunch`.
+    @MainActor
+    func activatePreparedLaunch(_ preparedLaunch: DMPPreparedLaunch) throws {
+        guard preparedLaunch.navigator === self,
+              !preparedLaunch.isCancelled,
+              !preparedLaunch.isActivated else {
+            throw DMPLaunchError.invalidPreparedLaunch
+        }
+        guard let navigationController,
+              navigationController.viewControllers.contains(where: {
+                  $0 === preparedLaunch.rootViewController
+              }) else {
+            throw DMPLaunchError.rootControllerNotMounted
+        }
+
+        if let currentPage = getCurrentPageController(),
+           currentPage !== preparedLaunch.firstPageController {
+            pageLifecycle?.onHide(webviewId: currentPage.getWebView().getWebViewId())
+        }
+
+        pageRecords.append(preparedLaunch.pageRecord)
+        preparedLaunch.isActivated = true
+        pageLifecycle?.onShow(
+            webviewId: preparedLaunch.firstPageController.getWebView().getWebViewId()
+        )
+    }
+
+    @MainActor
+    func cancelPreparedLaunch(_ preparedLaunch: DMPPreparedLaunch) {
+        guard preparedLaunch.navigator === self, !preparedLaunch.isActivated else {
+            return
+        }
+        preparedLaunch.isCancelled = true
+    }
+
+    /// Compatibility API for standalone integrations. Embedded hosts should
+    /// use DMPApp.prepareLaunch/activatePreparedLaunch instead.
+    @MainActor
+    public func launch(to path: String, query: [String: Any]? = nil, animated: Bool = true) async {
+        do {
+            let preparedLaunch = try await prepareLaunch(to: path, query: query)
+            try mountPreparedLaunch(preparedLaunch, animated: animated)
+            try activatePreparedLaunch(preparedLaunch)
+            DMPLog.app.debug("nav stack after launch: \(navigationController?.viewControllers.map { String(describing: type(of: $0)) } ?? [])")
+        } catch {
+            DMPLog.app.error("DMPNavigator launch failed: \(error.localizedDescription)")
+        }
     }
 
     /// 切到指定 tab 页面。栈里必须有 DMPTabBarContainerController。

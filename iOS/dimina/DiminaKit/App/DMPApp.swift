@@ -7,6 +7,35 @@
 
 import Foundation
 
+public enum DMPLaunchError: LocalizedError {
+    case alreadyLaunching
+    case appDestroyed
+    case invalidAppState
+    case invalidBundleConfig
+    case navigationControllerUnavailable
+    case invalidPreparedLaunch
+    case rootControllerNotMounted
+
+    public var errorDescription: String? {
+        switch self {
+        case .alreadyLaunching:
+            return "The mini program is already launching"
+        case .appDestroyed:
+            return "The mini program has been destroyed"
+        case .invalidAppState:
+            return "The mini program is not fully configured"
+        case .invalidBundleConfig:
+            return "The mini program app config is invalid"
+        case .navigationControllerUnavailable:
+            return "The navigation controller is unavailable"
+        case .invalidPreparedLaunch:
+            return "The prepared launch is no longer valid"
+        case .rootControllerNotMounted:
+            return "The prepared root controller has not been mounted"
+        }
+    }
+}
+
 public class DMPApp {
     private var appId: String
     private var appIndex: Int
@@ -28,6 +57,7 @@ public class DMPApp {
 
     private var isLaunching = false
     private var isDestroyed = false
+    private var preparedLaunchID: UUID?
     private var developerPreviewClient: DMPDeveloperPreviewClient?
     private var developerDebugClient: DMPDeveloperDebugClient?
     /// Host API registrations belong to the app instance, not to one container
@@ -56,9 +86,36 @@ public class DMPApp {
 
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
-        guard !isLaunching else {
-            DMPLogger.debug("launch skipped: app is already launching")
-            return
+        var preparedLaunch: DMPPreparedLaunch?
+        do {
+            let launch = try await prepareLaunch(launchConfig: launchConfig)
+            preparedLaunch = launch
+            guard let navigator else {
+                throw DMPLaunchError.invalidAppState
+            }
+            try navigator.mountPreparedLaunch(launch, animated: true)
+            try activatePreparedLaunch(launch)
+        } catch {
+            if let preparedLaunch {
+                cancelPreparedLaunch(preparedLaunch)
+            }
+            hideLoading()
+            DMPLog.app.error("launch failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Prepares resources and the initial page without changing the host's
+    /// navigation stack. Embedded hosts should mount the returned controller
+    /// and then call `activatePreparedLaunch`.
+    @MainActor
+    public func prepareLaunch(
+        launchConfig: DMPLaunchConfig
+    ) async throws -> DMPPreparedLaunch {
+        guard !isDestroyed else {
+            throw DMPLaunchError.appDestroyed
+        }
+        guard !isLaunching, preparedLaunchID == nil else {
+            throw DMPLaunchError.alreadyLaunching
         }
 
         isLaunching = true
@@ -93,7 +150,7 @@ public class DMPApp {
         guard bundleAppConfig != nil else {
             reportTrackingEvent(.loadFailed(stage: .bundle, code: "app_config_invalid"))
             hideLoading()
-            return
+            throw DMPLaunchError.invalidBundleConfig
         }
 
         if let manifestUrl = appConfig?.updateManifestUrl,
@@ -109,13 +166,41 @@ public class DMPApp {
         developerDebugClient?.attachLogSources()
         DMPLog.app.info("initRender done")
 
-        await openPage(launchConfig: launchConfig)
-        DMPLog.app.info("openPage done")
+        let preparedLaunch = try await preparePage(launchConfig: launchConfig)
+        preparedLaunchID = preparedLaunch.launchID
+        DMPLog.app.info("preparePage done, launchID=\(preparedLaunch.launchID)")
+
+        return preparedLaunch
+    }
+
+    /// Activates Dimina's logical page stack after the host has mounted the
+    /// exact root controller returned by `prepareLaunch`.
+    @MainActor
+    public func activatePreparedLaunch(_ preparedLaunch: DMPPreparedLaunch) throws {
+        guard !isDestroyed else {
+            throw DMPLaunchError.appDestroyed
+        }
+        guard preparedLaunchID == preparedLaunch.launchID, let navigator else {
+            throw DMPLaunchError.invalidPreparedLaunch
+        }
+
+        try navigator.activatePreparedLaunch(preparedLaunch)
+        preparedLaunchID = nil
 
         hideLoading()
         DMPLog.app.info("launch finished")
         developerPreviewClient?.start()
         developerDebugClient?.start()
+    }
+
+    @MainActor
+    public func cancelPreparedLaunch(_ preparedLaunch: DMPPreparedLaunch) {
+        guard preparedLaunchID == preparedLaunch.launchID else {
+            return
+        }
+        navigator?.cancelPreparedLaunch(preparedLaunch)
+        preparedLaunchID = nil
+        hideLoading()
     }
 
     public func initService() async {
@@ -155,7 +240,7 @@ public class DMPApp {
         _ handler: DMPApiHandler,
         conflictPolicy: DMPApiConflictPolicy = .reject
     ) -> Bool {
-        guard !isLaunching, !isDestroyed else {
+        guard !isLaunching, preparedLaunchID == nil, !isDestroyed else {
             DMPLogger.debug("registerApi skipped: APIs must be registered before launch")
             return false
         }
@@ -558,21 +643,34 @@ public class DMPApp {
     }
 
     @MainActor
-    public func openPage(launchConfig: DMPLaunchConfig) async {
-        // 优先使用传入的 path，没传时 fallback 到 app-config.json 的第一个页面
+    private func preparePage(launchConfig: DMPLaunchConfig) async throws -> DMPPreparedLaunch {
+        let (route, query) = resolveLaunchRoute(launchConfig: launchConfig)
+        guard let navigator else {
+            throw DMPLaunchError.invalidAppState
+        }
+        return try await navigator.prepareLaunch(to: route.pagePath, query: query)
+    }
+
+    private func resolveLaunchRoute(
+        launchConfig: DMPLaunchConfig
+    ) -> (route: DMPPageRoute, query: [String: Any]?) {
         let requestedPath = (launchConfig.appEntryPath ?? "").isEmpty
-            ? (self.bundleAppConfig?.entryPagePath ?? "")
+            ? (bundleAppConfig?.entryPagePath ?? "")
             : launchConfig.appEntryPath ?? ""
         let route = DMPPageRoute(path: requestedPath)
         let query = route.merging(query: launchConfig.query)
-        DMPLog.app.info("openPage entryPath=\(route.pagePath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(self.bundleAppConfig?.entryPagePath ?? "nil"))")
+        DMPLog.app.info("openPage entryPath=\(route.pagePath) (launchConfig=\(launchConfig.appEntryPath ?? "nil"), bundleConfig=\(bundleAppConfig?.entryPagePath ?? "nil"))")
 
-        // Cache the resolved launch config for applyUpdate relaunch
         var resolvedConfig = launchConfig
         resolvedConfig.appEntryPath = route.pagePath
         resolvedConfig.query = query
         currentLaunchConfig = resolvedConfig
+        return (route, query)
+    }
 
+    @MainActor
+    public func openPage(launchConfig: DMPLaunchConfig) async {
+        let (route, query) = resolveLaunchRoute(launchConfig: launchConfig)
         await navigator?.launch(to: route.pagePath, query: query)
     }
 
@@ -641,6 +739,7 @@ public class DMPApp {
             return
         }
         isDestroyed = true
+        preparedLaunchID = nil
         DMPLog.app.info("destroy, appId=\(appId)")
         reportTrackingEvent(.destroyed)
         navigator?.tearDownNavigation()
