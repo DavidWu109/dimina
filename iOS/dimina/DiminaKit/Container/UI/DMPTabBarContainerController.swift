@@ -114,9 +114,11 @@ public class DMPTabBarContainerController: UIViewController {
         guard let newPC = ensurePageController(at: index, query: nil) else { return }
 
         // detach 旧 tab 的 view；VC 仍是 child（保留 WebView + JS 状态）
+        oldPC?.reportDidBecomeHiddenForTracking()
         oldPC?.view.removeFromSuperview()
         // attach 新 tab 的 view
         attachChildView(newPC)
+        newPC.reportDidBecomeVisibleForTracking()
 
         selectedIndex = index
         tabBarView.setSelected(pagePath: tabBarConfig.list[index].pagePath)

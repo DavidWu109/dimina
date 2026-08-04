@@ -59,6 +59,7 @@ public class DMPPageController: UIViewController {
 
     // State
     private var isWebViewDestroyed = false
+    private var isVisibleForTracking = false
     private var interactivePopTransitionInProgress = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
@@ -192,6 +193,7 @@ public class DMPPageController: UIViewController {
         super.viewDidAppear(animated)
         interactivePopTransitionInProgress = false
         navigator?.pageControllerDidAppear(self)
+        reportDidBecomeVisibleForTracking()
         logLaunchStage("view_did_appear")
         webview.refreshHostReadiness()
         startResourcePreloadingIfNeeded()
@@ -1284,6 +1286,7 @@ public class DMPPageController: UIViewController {
 
         let completedInteractivePop = interactivePopTransitionInProgress && isMovingFromParent
         let webViewId = webview.getWebViewId()
+        reportDidBecomeHiddenForTracking()
         interactivePopTransitionInProgress = false
 
         // Notify lifecycle management when page completely disappears
@@ -1297,6 +1300,26 @@ public class DMPPageController: UIViewController {
         } else {
             navigator?.pageControllerDidDisappear(self)
         }
+    }
+
+    func reportDidBecomeVisibleForTracking() {
+        guard !isVisibleForTracking, !isWebViewDestroyed else { return }
+        isVisibleForTracking = true
+        app?.reportTrackingEvent(
+            .pageDidBecomeVisible(
+                path: pagePath,
+                webViewId: webview.getWebViewId(),
+                visitId: UUID().uuidString
+            )
+        )
+    }
+
+    func reportDidBecomeHiddenForTracking() {
+        guard isVisibleForTracking else { return }
+        isVisibleForTracking = false
+        app?.reportTrackingEvent(
+            .pageDidBecomeHidden(webViewId: webview.getWebViewId())
+        )
     }
     
     // Destroy WebView

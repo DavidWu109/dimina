@@ -181,6 +181,12 @@ public class DMPRender: DMPWebViewDelegate {
     public func webViewDidFailLoad(webViewId: Int, error: Error) {
         let ns = error as NSError
         DMPLog.render.error("webViewDidFailLoad id=\(webViewId) domain=\(ns.domain) code=\(ns.code) msg=\(error.localizedDescription)")
+        guard ns.code != NSURLErrorCancelled else {
+            return
+        }
+        app?.reportTrackingEvent(
+            .loadFailed(stage: .render, code: "webview_navigation_failed")
+        )
     }
 
     public func fromContainer(data: DMPMap, webViewId: Int) {

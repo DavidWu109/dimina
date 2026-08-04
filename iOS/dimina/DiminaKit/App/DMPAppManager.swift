@@ -25,6 +25,12 @@ public class DMPAppManager {
     public func getApp(appIndex: Int) -> DMPApp? {
         return appPools[appIndex]
     }
+
+    /// Whether this process currently owns a reusable app instance. Package
+    /// cache state is intentionally unrelated to this runtime cold-start flag.
+    public func hasApp(appId: String) -> Bool {
+        return existApp(appId: appId) != nil
+    }
     
     func newAppWithConfig(appConfig: DMPAppConfig) -> DMPApp {
         appIndex += 1
@@ -37,6 +43,7 @@ public class DMPAppManager {
         DMPLogger.debug("appWithConfig config=\(appConfig)")
         if let existingApp = existApp(appId: appConfig.appId) {
             DMPLogger.debug("appWithConfig return exist DMPApp")
+            existingApp.setTrackingHandler(appConfig.trackingHandler)
             return existingApp
         } else {
             DMPLogger.debug("appWithConfig create DMPApp")

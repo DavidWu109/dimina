@@ -24,6 +24,10 @@ public struct DMPAppConfig : Identifiable {
     public var color: Color?
     public var icon: String?
 
+    /// Optional framework lifecycle observer. Dimina emits semantic events and
+    /// remains independent of the host analytical SDK.
+    public var trackingHandler: DMPTrackingHandler?
+
     // 符合Identifiable协议的id属性
     public var id: String { appId }
 

@@ -11,6 +11,7 @@ public class DMPApp {
     private var appId: String
     private var appIndex: Int
     private var appConfig: DMPAppConfig?
+    private var trackingHandler: DMPTrackingHandler?
 
     private lazy var navigator: DMPNavigator? = DMPNavigator(app: self)
 
@@ -38,7 +39,19 @@ public class DMPApp {
         self.appConfig = appConfig
         self.appId = appConfig.appId
         self.appIndex = appIndex
+        self.trackingHandler = appConfig.trackingHandler
         DMPFileUtil.setFileURLScheme(appConfig.fileURLScheme, forAppId: appConfig.appId)
+    }
+
+    /// Replaces the per-launch observer even when `DMPAppManager` reuses an app
+    /// instance. Call this before every launch to avoid reporting into a stale
+    /// host session.
+    public func setTrackingHandler(_ handler: DMPTrackingHandler?) {
+        trackingHandler = handler
+    }
+
+    func reportTrackingEvent(_ event: DMPTrackingEvent) {
+        trackingHandler?(event)
     }
 
     @MainActor
@@ -76,6 +89,12 @@ public class DMPApp {
 
         await loadBundle()
         DMPLog.app.info("loadBundle done, bundleAppConfig=\(bundleAppConfig != nil ? "ok" : "nil")")
+
+        guard bundleAppConfig != nil else {
+            reportTrackingEvent(.loadFailed(stage: .bundle, code: "app_config_invalid"))
+            hideLoading()
+            return
+        }
 
         if let manifestUrl = appConfig?.updateManifestUrl,
            !manifestUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -623,6 +642,7 @@ public class DMPApp {
         }
         isDestroyed = true
         DMPLog.app.info("destroy, appId=\(appId)")
+        reportTrackingEvent(.destroyed)
         navigator?.tearDownNavigation()
         developerPreviewClient?.stop()
         developerPreviewClient = nil
@@ -649,6 +669,7 @@ public class DMPApp {
         render = nil
         pageCapsuleProvider = nil
         pageNavigationControlsProvider = nil
+        trackingHandler = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 

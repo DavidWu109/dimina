@@ -19,7 +19,7 @@ class DMPChannelProxy {
             body.set("query", webview!.getQuery())
         }
         // 暂时升级为 info 排查 showModal/invokeAPI 不到 native 的问题
-        if type == "invokeAPI" || type == "domReady" {
+        if type == "invokeAPI" || type == "domReady" || type == "renderResourceLoadFailed" {
             let methodName = body.get("name") as? String ?? "?"
             DMPLog.bridge.info("messageHandler type=\(type) target=\(target) bridgeId=\(webViewId) name=\(methodName)")
         } else {
@@ -47,6 +47,13 @@ class DMPChannelProxy {
                     resourceLoadedMessage: transMsg
                 )
                 return DMPMap()
+            } else if type == "renderResourceLoadFailed" {
+                app.reportTrackingEvent(
+                    .loadFailed(stage: .render, code: "resource_load_failed")
+                )
+                Task { @MainActor in
+                    await app.service?.postMessage(data: transMsg)
+                }
             } else {
                 Task { @MainActor in
                     await app.service?.postMessage(data: transMsg)
@@ -65,6 +72,12 @@ class DMPChannelProxy {
                 app.container?.isNavigating = false
                 if let webview = webview {
                     webview.hideLoading()
+                    app.reportTrackingEvent(
+                        .pageContentRendered(
+                            path: webview.getPagePath(),
+                            webViewId: webViewId
+                        )
+                    )
                 }
                 DMPLogger.debug("domReady")
             }
