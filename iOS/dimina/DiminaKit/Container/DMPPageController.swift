@@ -1031,7 +1031,18 @@ public class DMPPageController: UIViewController {
             action: #selector(miniProgramMenuCloseTapped)
         )
 
-        let actionStack = UIStackView(arrangedSubviews: [reenterItem, closeItem])
+        var menuItems = [reenterItem, closeItem]
+        if appConfig.onMenuSettingClick != nil {
+            let settingItem = makeMiniProgramMenuItem(
+                title: "设置",
+                image: UIImage(systemName: "gearshape", withConfiguration: symbolConfiguration)?
+                    .withTintColor(iconColor, renderingMode: .alwaysOriginal) ?? UIImage(),
+                action: #selector(miniProgramMenuSettingTapped)
+            )
+            menuItems.append(settingItem)
+        }
+
+        let actionStack = UIStackView(arrangedSubviews: menuItems)
         actionStack.translatesAutoresizingMaskIntoConstraints = false
         actionStack.axis = .horizontal
         actionStack.distribution = .fill
@@ -1091,7 +1102,7 @@ public class DMPPageController: UIViewController {
 
             actionStack.topAnchor.constraint(equalTo: topDivider.bottomAnchor, constant: 20),
             actionStack.leadingAnchor.constraint(equalTo: sheetView.leadingAnchor, constant: 24),
-            actionStack.widthAnchor.constraint(equalToConstant: 172),
+            actionStack.widthAnchor.constraint(equalToConstant: CGFloat(menuItems.count * 78 + (menuItems.count - 1) * 16)),
             actionStack.heightAnchor.constraint(equalToConstant: 94),
 
             bottomDivider.topAnchor.constraint(equalTo: actionStack.bottomAnchor, constant: 20),
@@ -1175,6 +1186,11 @@ public class DMPPageController: UIViewController {
     @objc private func miniProgramMenuCloseTapped() {
         dismissMiniProgramMenu()
         capsuleCloseButtonTapped()
+    }
+
+    @objc private func miniProgramMenuSettingTapped() {
+        dismissMiniProgramMenu()
+        appConfig.onMenuSettingClick?()
     }
 
     // Set navigation bar style

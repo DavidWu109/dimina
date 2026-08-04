@@ -19,6 +19,8 @@ public class DMPBundleAppConfig {
     var moduleMaps: [String: ModuleConfig]
     public var window: [String: Any]?
     public var tabBar: DMPTabBarConfig?
+    /// Permission usage descriptions declared in app.json.
+    public private(set) var permissionDescriptions: [String: String]
 
     init(data: [String: Any]) {
         self.data = data
@@ -32,6 +34,12 @@ public class DMPBundleAppConfig {
         self._entryPagePath = self.app["entryPagePath"] as? String ?? ""
         self.window = self.app["window"] as? [String: Any]
         self.tabBar = DMPTabBarConfig(json: self.app["tabBar"] as? [String: Any])
+        let permissions = self.app["permission"] as? [String: Any] ?? [:]
+        self.permissionDescriptions = permissions.reduce(into: [:]) { result, item in
+            guard let config = item.value as? [String: Any],
+                  let description = config["desc"] as? String else { return }
+            result[item.key] = description
+        }
         
         // 初始化 moduleMaps
         var maps = [String: ModuleConfig]()

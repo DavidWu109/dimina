@@ -41,27 +41,68 @@ public class ImageAPI: DMPContainerApi {
             return DMPAsyncResult()
         }
 
-        guard DMPPermissionManager.shared.isPermissionConfigured(.photoLibrary) else {
-            DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Photo library permission not configured in Info.plist")
+        if let checker = getApp()?.getAppConfig()?.checkPermission {
+            checker("scope.writePhotosAlbum") { [weak self] result in
+                guard let self else { return }
+                guard result == .allowed else {
+                    DMPContainerApi.invokeFailure(
+                        callback: callback,
+                        param: nil,
+                        errMsg: self.permissionErrorMessage(
+                            method: "saveImageToPhotosAlbum",
+                            result: result
+                        )
+                    )
+                    return
+                }
+                self.performSaveImage(filePath: filePath, callback: callback)
+            }
             return DMPAsyncResult()
         }
 
+        saveImage(filePath: filePath, callback: callback)
+        return DMPAsyncResult()
+    }
+
+    private func saveImage(filePath: String, callback: DMPBridgeCallback?) {
+
+        guard DMPPermissionManager.shared.isPermissionConfigured(.photoLibrary) else {
+            DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Photo library permission not configured in Info.plist")
+            return
+        }
+
         DMPPermissionManager.shared.requestPermission(.photoLibrary) { status in
-            guard status == .authorized else {
+            guard status == .authorized || status == .limited else {
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Photo library permission denied")
                 return
             }
-
-            guard let image = UIImage(contentsOfFile: filePath) else {
-                DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to load image")
-                return
-            }
-
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            DMPContainerApi.invokeSuccess(callback: callback, param: nil)
+            self.performSaveImage(filePath: filePath, callback: callback)
         }
+    }
 
-        return DMPAsyncResult()
+    private func performSaveImage(filePath: String, callback: DMPBridgeCallback?) {
+        guard let image = UIImage(contentsOfFile: filePath) else {
+            DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to load image")
+            return
+        }
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        DMPContainerApi.invokeSuccess(callback: callback, param: nil)
+    }
+
+    private func permissionErrorMessage(
+        method: String,
+        result: DMPPermissionCheckResult
+    ) -> String {
+        switch result {
+        case .allowed:
+            return "\(method):ok"
+        case .systemDenied:
+            return "\(method):fail system permission denied"
+        case .userDenied:
+            return "\(method):fail user permission denied"
+        case .scopeNotConfigured:
+            return "\(method):fail scope not configured in app.json"
+        }
     }
 
     private func previewImage(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
