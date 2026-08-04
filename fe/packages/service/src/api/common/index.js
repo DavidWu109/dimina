@@ -67,6 +67,7 @@ const optionalParamPromiseApis = new Set([
 	'getClipboardData',
 	'getBluetoothAdapterState',
 	'getBluetoothDevices',
+	'getFuzzyLocation',
 	'getLocation',
 	'getNetworkType',
 	'getPrivacySetting',

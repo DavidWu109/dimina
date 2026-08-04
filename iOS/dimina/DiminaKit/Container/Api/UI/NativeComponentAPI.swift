@@ -95,7 +95,7 @@ public class NativeComponentAPI: DMPContainerApi {
             return DMPAsyncResult()
         }
 
-        DispatchQueue.main.async {
+        let execute = {
             let host = DMPIOSNativeComponentHost.host(for: webview, app: app, webViewId: env.webViewId)
             host.handleMapCommand(id: mapId, command: command, params: params) { result in
                 switch result {
@@ -105,6 +105,23 @@ public class NativeComponentAPI: DMPContainerApi {
                     DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "\(command):fail \(error.localizedDescription)")
                 }
             }
+        }
+
+        guard command == "moveToLocation", let checker = app.getAppConfig()?.checkPermission else {
+            DispatchQueue.main.async(execute: execute)
+            return DMPAsyncResult()
+        }
+
+        checker("scope.userLocation") { result in
+            guard result == .allowed else {
+                DMPContainerApi.invokeFailure(
+                    callback: callback,
+                    param: nil,
+                    errMsg: SettingAPI.permissionErrorMessage(method: command, result: result)
+                )
+                return
+            }
+            DispatchQueue.main.async(execute: execute)
         }
         return DMPAsyncResult()
     }

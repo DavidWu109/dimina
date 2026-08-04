@@ -1,5 +1,7 @@
-import { callback } from '@dimina/common'
+import { callback, isFunction } from '@dimina/common'
 import { invokeAPI } from '@/api/common'
+
+const locationChangeListeners = new Map()
 
 /**
  * 获取当前的地理位置、速度。
@@ -7,6 +9,14 @@ import { invokeAPI } from '@/api/common'
  */
 export function getLocation(opts) {
 	return invokeAPI('getLocation', opts)
+}
+
+/**
+ * 获取模糊地理位置。
+ * https://developers.weixin.qq.com/miniprogram/dev/api/location/wx.getFuzzyLocation.html
+ */
+export function getFuzzyLocation(opts) {
+	return invokeAPI('getFuzzyLocation', opts)
 }
 
 /**
@@ -38,12 +48,15 @@ export function stopLocationUpdate(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/location/wx.onLocationChange.html
  */
 export function onLocationChange(listener) {
-	if (listener) {
-		const id = callback.store(listener, true)
-		invokeAPI('onLocationChange', {
-			success: id,
-		})
+	if (!isFunction(listener) || locationChangeListeners.has(listener)) {
+		return
 	}
+	const id = callback.store(value => listener(value), true)
+	locationChangeListeners.set(listener, id)
+	return invokeAPI('onLocationChange', {
+		callback: id,
+		keep: true,
+	})
 }
 
 /**
@@ -52,15 +65,22 @@ export function onLocationChange(listener) {
  * @param {*} listener onLocationChange 传入的监听函数。不传此参数则移除所有监听函数。
  */
 export function offLocationChange(listener) {
-	if (listener) {
-		const id = callback.store(listener, true)
-		invokeAPI('offLocationChange', {
-			success: id,
+	if (isFunction(listener)) {
+		const id = locationChangeListeners.get(listener)
+		if (!id) {
+			return
+		}
+		locationChangeListeners.delete(listener)
+		callback.remove(id)
+		return invokeAPI('offLocationChange', {
+			callback: id,
+			keep: true,
 		})
+	}
+
+	for (const id of locationChangeListeners.values()) {
 		callback.remove(id)
 	}
-	else {
-		invokeAPI('offLocationChange')
-		callback.remove()
-	}
+	locationChangeListeners.clear()
+	return invokeAPI('offLocationChange', { keep: true })
 }
