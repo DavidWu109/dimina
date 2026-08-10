@@ -40,6 +40,8 @@ describe('system info api', () => {
 			fontSizeScaleFactor: 1,
 			fontSizeSetting: 16,
 			// device info fields
+			abi: 'arm64',
+			benchmarkLevel: -1,
 			brand: 'test',
 			model: 'test',
 			platform: 'devtools',
@@ -69,6 +71,8 @@ describe('system info api', () => {
 			fontSizeSetting: 16,
 		})
 		expect(getDeviceInfo()).toEqual({
+			abi: 'arm64',
+			benchmarkLevel: -1,
 			brand: 'test',
 			model: 'test',
 			platform: 'devtools',
@@ -86,6 +90,45 @@ describe('system info api', () => {
 
 		expect(hostEnv.getMenuRect()).toBe(menuRect)
 		expect(listener).toHaveBeenCalledWith(menuRect)
+	})
+
+	it('reads the latest window geometry after an orientation update', () => {
+		const portraitInfo = {
+			brand: 'Apple',
+			windowWidth: 390,
+			windowHeight: 844,
+			screenWidth: 390,
+			screenHeight: 844,
+			pixelRatio: 3,
+			statusBarHeight: 59,
+			screenTop: 59,
+			safeArea: { top: 59, bottom: 810, left: 0, right: 390, width: 390, height: 751 },
+		}
+		const landscapeInfo = {
+			...portraitInfo,
+			windowWidth: 844,
+			windowHeight: 390,
+			screenWidth: 844,
+			screenHeight: 390,
+			statusBarHeight: 0,
+			screenTop: 0,
+			safeArea: { top: 0, bottom: 369, left: 59, right: 785, width: 726, height: 369 },
+		}
+
+		hostEnv.init({ systemInfo: portraitInfo })
+		hostEnv.update({ systemInfo: landscapeInfo })
+
+		expect(getWindowInfo()).toEqual({
+			pixelRatio: 3,
+			screenWidth: 844,
+			screenHeight: 390,
+			windowWidth: 844,
+			windowHeight: 390,
+			statusBarHeight: 0,
+			screenTop: 0,
+			safeArea: { top: 0, bottom: 369, left: 59, right: 785, width: 726, height: 369 },
+		})
+		expect(getSystemInfoSync()).toBe(landscapeInfo)
 	})
 
 	it('notifies theme listeners from host environment updates', () => {

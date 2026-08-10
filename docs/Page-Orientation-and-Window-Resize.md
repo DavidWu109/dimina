@@ -55,7 +55,9 @@ Dimina 已声明 `page-meta` 的 `page-orientation` 属性，也已有 Page 和 
 | `landscape` | 页面固定横屏 |
 | `auto` | 页面方向跟随设备或窗口变化 |
 
-解析优先级为：页面 JSON > `app.json.window` > `portrait`。缺失或非法值回退为 `portrait`，不得把非法值透传给平台容器。
+静态配置解析优先级为：页面 JSON > `app.json.window` > `portrait`。缺失或非法值回退为 `portrait`，不得把非法值透传给平台容器。
+
+方向最终值的完整优先级为：当前可见页面的 `page-meta.page-orientation` 运行时覆盖 > 页面 JSON > `app.json.window` > `portrait`。隐藏页面保存的运行时值不得越过当前可见页面参与决策。
 
 ### 3.2 `page-meta`
 
@@ -113,7 +115,22 @@ Component({
 
 不得继续向 Page 或 Component 传递扁平的 `{ windowWidth, windowHeight }`。
 
-### 3.4 `wx.onWindowResize` 与 `wx.offWindowResize`
+### 3.4 方向相关系统信息 API
+
+本能力对开发者交付的系统信息 API 如下。拆分 API 是后续新增代码的首选；`getSystemInfo*` 只为兼容既有小程序保留，不再扩展新字段。
+
+| 状态 | API 与签名 | 返回内容 | 方向变化后的约束 |
+| --- | --- | --- | --- |
+| 推荐 | `wx.getWindowInfo(): WindowInfo` | `pixelRatio`、`screenWidth`、`screenHeight`、`windowWidth`、`windowHeight`、`statusBarHeight`、`safeArea`、`screenTop` | 每次调用返回当前窗口与 viewport 的实际尺寸，不得缓存首次启动值 |
+| 推荐 | `wx.getDeviceInfo(): DeviceInfo` | `abi`、`benchmarkLevel`、`brand`、`model`、`platform`、`system` | 设备固有信息不因页面方向变化而伪造或重写 |
+| 推荐 | `wx.getAppBaseInfo(): AppBaseInfo` | `SDKVersion`、`enableDebug`、`host`、`language`、`version`、`theme`、`fontSizeScaleFactor`、`fontSizeSetting` | App 基础信息与窗口尺寸解耦 |
+| 兼容、停止维护 | `wx.getSystemInfo(options?): Promise<SystemInfo>` | 上述信息的兼容聚合结果 | 已有尺寸字段必须反映调用时的当前窗口，不再新增字段 |
+| 兼容、停止维护 | `wx.getSystemInfoAsync(options?): Promise<SystemInfo> \| void` | `getSystemInfo` 的异步/回调兼容入口 | 与 `getSystemInfo` 返回同一时刻的尺寸语义 |
+| 兼容、停止维护 | `wx.getSystemInfoSync(): SystemInfo` | `getSystemInfo` 的同步兼容入口 | 与 `getWindowInfo` 的重叠字段在同一时刻必须一致 |
+
+`screenWidth`、`screenHeight`、`windowWidth` 和 `windowHeight` 是数值字段。业务判断当前布局应优先比较当前返回的宽高，不依赖 iOS 物理设备方向枚举。横竖屏切换完成前可以读到旧尺寸；viewport 发生真实变化并触发 resize 后，再次调用必须返回新尺寸。
+
+### 3.5 `wx.onWindowResize` 与 `wx.offWindowResize`
 
 ```ts
 wx.onWindowResize(listener: (res: ResizeResult) => void): void
@@ -185,7 +202,7 @@ Android、iOS 和 HarmonyOS 可以采用不同实现，只需满足以下结果�
 4. 平台实际改变 WebView viewport 后，浏览器产生真实 `window.resize`。
 5. 平台拒绝、系统锁定或暂不支持时安全降级，不伪造成功后的尺寸事件。
 
-具体系统 API、线程模型、错误回调、异步等待和宿主状态保存方式由各平台自行设计并在平台文档中说明。
+具体线程模型、错误回调、异步等待和宿主状态保存方式由各平台自行设计并在平台文档中说明，但系统信息 API 的公开签名、字段拆分和尺寸语义必须遵守 3.4。
 
 ### 6.1 iOS 导航控件与安全区域
 
@@ -202,6 +219,8 @@ iOS 页面方向变化后，原生导航控件必须跟随当前 `UIViewControll
 ## 7. 兼容性
 
 - 未使用 `pageOrientation`、`page-meta.page-orientation` 或 resize API 的小程序不受影响。
+- `wx.getWindowInfo`、`wx.getDeviceInfo` 和 `wx.getAppBaseInfo` 是推荐入口；新字段只进入对应拆分 API。
+- `wx.getSystemInfo`、`wx.getSystemInfoAsync` 和 `wx.getSystemInfoSync` 保留现有兼容能力，但标记为停止维护，不作为新能力扩展入口。
 - `wx.onWindowResize` 从不完整的容器回调改为 service 内事件订阅，公开签名不变。
 - `wx.offWindowResize` 是新增 API。
 - Page 和 Component resize 参数从扁平尺寸对象校准为微信兼容的 `ResizeResult`，属于行为修正；应在 Changelog 中明确记录。
@@ -223,6 +242,10 @@ iOS 页面方向变化后，原生导航控件必须跟随当前 `UIViewControll
 | JS-RSZ-005 | 移除指定监听或全部监听 | 仅剩余监听继续接收 |
 | JS-RSZ-006 | 某监听抛出异常 | 其他监听和生命周期仍执行 |
 | JS-RSZ-007 | 平台拒绝方向请求 | 不发送虚假 resize，页面继续可用 |
+| JS-SYS-001 | 竖屏进入横屏并等待 viewport resize | `getWindowInfo` 的宽高更新，且 `windowWidth > windowHeight` |
+| JS-SYS-002 | 横屏进入竖屏并等待 viewport resize | `getWindowInfo` 的宽高更新，且 `windowHeight > windowWidth` |
+| JS-SYS-003 | 同一时刻调用三个兼容 `getSystemInfo*` | 重叠字段与 `getWindowInfo` 一致 |
+| JS-SYS-004 | 调用三个推荐拆分 API | 字段只落在所属信息域，不依赖兼容聚合接口新增字段 |
 | IOS-ORI-001 | 刘海或灵动岛位于横屏左侧 | 左侧导航控件位于 safe area 内，胶囊距右侧 safe area 10pt |
 | IOS-ORI-002 | 刘海或灵动岛位于横屏右侧 | 胶囊位于 safe area 内且不与标题重叠 |
 | IOS-ORI-003 | `getMenuButtonBoundingClientRect` | 返回值与原生胶囊最终 frame 一致 |

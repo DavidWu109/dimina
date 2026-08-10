@@ -20,22 +20,7 @@ public class DeviceAPI: DMPContainerApi {
     }
 
     private func getDeviceInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let result = DMPMap()
-        let data = DMPMap()
-
-        // Note: These CGFloat extensions would need to be available or replaced with standard UIKit values
-//        let screenBounds = UIScreen.main.bounds
-//        let statusBarHeight = UIApplication.shared.statusBarFrame.height
-//        let navigationBarHeight: CGFloat = 44 // Standard navigation bar height
-//
-//        data.set("screenWidth", Int(screenBounds.width))
-//        data.set("screenHeight", Int(screenBounds.height))
-//        data.set("navigationBarHeight", Int(navigationBarHeight))
-//        data.set("statusBarHeight", Int(statusBarHeight))
-//
-//        result.set("data", data)
-//        DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return DMPSyncResult(true)
+        return DMPSyncResult(SystemAPI.getDeviceInfo())
     }
 
     private func isDebug(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {

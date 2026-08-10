@@ -24,6 +24,7 @@ public class SystemAPI: DMPContainerApi {
         register("getSystemInfoSync", handler: getSystemInfoSync)
         register("getSystemInfoAsync", handler: getSystemInfoAsync)
         register("getSystemInfo", handler: getSystemInfo)
+        register("getAppBaseInfo", handler: getAppBaseInfo)
     }
 
     private func getWindowInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
@@ -39,33 +40,53 @@ public class SystemAPI: DMPContainerApi {
     }
 
     private func getSystemInfoSync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        return DMPSyncResult(SystemAPI.getSystemInfo())
+        return DMPSyncResult(SystemAPI.getSystemInfo(app: getApp()))
     }
 
     private func getSystemInfoAsync(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let systemInfo = SystemAPI.getSystemInfo()
+        let systemInfo = SystemAPI.getSystemInfo(app: getApp())
         DMPContainerApi.invokeSuccess(callback: callback, param: systemInfo)
         return DMPAsyncResult()
     }
 
     private func getSystemInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        let systemInfo = SystemAPI.getSystemInfo()
+        let systemInfo = SystemAPI.getSystemInfo(app: getApp())
         DMPContainerApi.invokeSuccess(callback: callback, param: systemInfo)
         return DMPSyncResult(systemInfo)
     }
 
-    static func getSystemInfo() -> DMPMap {
+    private func getAppBaseInfo(_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
+        return DMPSyncResult(SystemAPI.getAppBaseInfo(app: getApp()))
+    }
+
+    static func getSystemInfo(app: DMPApp? = nil) -> DMPMap {
         let displayInfo = DMPMap(DMPUIManager.shared.getDeviceDisplayInfo())
+        let windowWidth = displayInfo.getDouble(key: "windowWidth") ?? 0
+        let windowHeight = displayInfo.getDouble(key: "windowHeight") ?? 0
+
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+
+        let baseFontSize: CGFloat = 16
+        let scaledFontSize = UIFontMetrics.default.scaledValue(for: baseFontSize)
 
         let systemInfo = DMPMap([
-            "brand": UIDevice.current.model,
+            "brand": "Apple",
             "model": UIDevice.current.model,
 
             "language": Locale.current.languageCode ?? "zh_CN",
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
             "system": UIDevice.current.systemName + " " + UIDevice.current.systemVersion,
             "platform": "ios",
-            "SDKVersion": "1.0.0",
+            "SDKVersion": DiminaVersion.sdkVersion,
+            "enableDebug": app?.getAppConfig()?.isDebugMode ?? isDebugBuild,
+            "host": ["appId": app?.getAppId() ?? ""],
+            "fontSizeScaleFactor": scaledFontSize / baseFontSize,
+            "fontSizeSetting": Int(scaledFontSize.rounded()),
+            "deviceOrientation": windowWidth > windowHeight ? "landscape" : "portrait",
 
             "albumAuthorized": false,
             "cameraAuthorized": false,
@@ -78,5 +99,50 @@ public class SystemAPI: DMPContainerApi {
         // 合并显示信息
         systemInfo.merge(displayInfo)
         return systemInfo
+    }
+
+    static func getAppBaseInfo(app: DMPApp? = nil) -> DMPMap {
+        return pick(
+            getSystemInfo(app: app),
+            keys: [
+                "SDKVersion",
+                "enableDebug",
+                "host",
+                "language",
+                "version",
+                "theme",
+                "fontSizeScaleFactor",
+                "fontSizeSetting",
+            ]
+        )
+    }
+
+    static func getDeviceInfo() -> DMPMap {
+        #if arch(arm64)
+        let abi = "arm64"
+        #elseif arch(x86_64)
+        let abi = "x86_64"
+        #else
+        let abi = "unknown"
+        #endif
+
+        return DMPMap([
+            "abi": abi,
+            "benchmarkLevel": -1,
+            "brand": "Apple",
+            "model": UIDevice.current.model,
+            "platform": "ios",
+            "system": UIDevice.current.systemName + " " + UIDevice.current.systemVersion,
+        ])
+    }
+
+    private static func pick(_ source: DMPMap, keys: [String]) -> DMPMap {
+        let result = DMPMap()
+        for key in keys {
+            if let value = source.get(key) {
+                result.set(key, value)
+            }
+        }
+        return result
     }
 }
