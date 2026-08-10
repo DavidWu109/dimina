@@ -13,18 +13,16 @@ enum DMPMenuButtonLayout {
     static let trailingSpacing: CGFloat = 10
     static let navigationBarContentHeight: CGFloat = 44
     static let titleTrailingGap: CGFloat = 13
-    static var titleTrailingInset: CGFloat {
-        trailingSpacing + capsuleSize.width + titleTrailingGap
-    }
 
     static func rect(
         windowWidth: CGFloat,
         statusBarHeight: CGFloat,
-        safeAreaTop: CGFloat
+        safeAreaInsets: UIEdgeInsets
     ) -> CGRect {
-        let top = max(statusBarHeight, safeAreaTop)
+        let top = max(statusBarHeight, safeAreaInsets.top)
             + (navigationBarContentHeight - capsuleSize.height) / 2
-        let right = max(windowWidth - trailingSpacing, capsuleSize.width)
+        let rightSpacing = safeAreaInsets.right + trailingSpacing
+        let right = max(windowWidth - rightSpacing, capsuleSize.width)
         return CGRect(
             x: right - capsuleSize.width,
             y: top,
@@ -54,11 +52,11 @@ public class MenuAPI: DMPContainerApi {
             ?? DMPUIManager.getCurrentWindow()?.bounds.width
             ?? UIScreen.main.bounds.width
         let statusBarHeight = DMPUIManager.shared.getStatusBarHeight()
-        let safeAreaTop = DMPUIManager.shared.getSafeAreaInsets().top
+        let safeAreaInsets = DMPUIManager.shared.getSafeAreaInsets()
         let rect = DMPMenuButtonLayout.rect(
             windowWidth: windowWidth,
             statusBarHeight: statusBarHeight,
-            safeAreaTop: safeAreaTop
+            safeAreaInsets: safeAreaInsets
         )
 
         let menuButtonInfo = DMPMap([

@@ -416,13 +416,6 @@ public class DMPPageController: UIViewController {
         let capsuleHeight = CGFloat(
             menuButtonRect.getDouble(key: "height") ?? Double(DMPMenuButtonLayout.capsuleSize.height)
         )
-        let windowWidth = DMPUIManager.shared.getDeviceDisplayInfo()["windowWidth"] as? CGFloat
-            ?? view.bounds.width
-        let capsuleRight = CGFloat(
-            menuButtonRect.getDouble(key: "right")
-                ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
-        )
-        let capsuleTrailing = max(windowWidth - capsuleRight, 0)
         view.addSubview(navigationBar)
         view.addSubview(capsuleView)
         navigationBar.addSubview(contentView)
@@ -440,7 +433,10 @@ public class DMPPageController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: navigationBar.bottomAnchor),
             contentView.heightAnchor.constraint(equalToConstant: DMPMenuButtonLayout.navigationBarContentHeight),
 
-            leadingControls.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            leadingControls.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: 4
+            ),
             leadingControls.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             leadingControls.heightAnchor.constraint(equalToConstant: 44),
 
@@ -448,12 +444,15 @@ public class DMPPageController: UIViewController {
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingControls.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: contentView.trailingAnchor,
-                constant: -DMPMenuButtonLayout.titleTrailingInset
+                lessThanOrEqualTo: capsuleView.leadingAnchor,
+                constant: -DMPMenuButtonLayout.titleTrailingGap
             ),
 
             capsuleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            capsuleView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -capsuleTrailing),
+            capsuleView.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -DMPMenuButtonLayout.trailingSpacing
+            ),
             capsuleView.widthAnchor.constraint(equalToConstant: capsuleWidth),
             capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight),
         ]

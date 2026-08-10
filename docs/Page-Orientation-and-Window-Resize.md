@@ -187,6 +187,18 @@ Android、iOS 和 HarmonyOS 可以采用不同实现，只需满足以下结果�
 
 具体系统 API、线程模型、错误回调、异步等待和宿主状态保存方式由各平台自行设计并在平台文档中说明。
 
+### 6.1 iOS 导航控件与安全区域
+
+iOS 页面方向变化后，原生导航控件必须跟随当前 `UIViewController` 的 safe area 重新布局，不能缓存竖屏窗口的绝对边距：
+
+- 右侧胶囊尺寸保持 `87 × 32pt`，其 trailing 等于当前 safe-area trailing 向内 `10pt`；
+- 左侧返回或 Home 控件的 leading 等于当前 safe-area leading 向内 `4pt`；
+- 标题右边界不得超过胶囊 leading 向左 `13pt`，避免横屏安全区把胶囊向内推后与标题重叠；
+- `getMenuButtonBoundingClientRect` 使用窗口坐标系，并返回与原生胶囊最终布局一致的坐标；其右边距为 `safeAreaInsets.right + 10pt`；
+- 正反两个横屏方向必须分别验证。刘海或灵动岛位于右侧时，胶囊不得进入系统安全区域；位于左侧时，左侧导航控件同样不得进入系统安全区域。
+
+布局必须通过 safe-area 约束随旋转自动更新，不依赖首次创建页面时读取到的 `windowWidth` 或固定横屏方向。
+
 ## 7. 兼容性
 
 - 未使用 `pageOrientation`、`page-meta.page-orientation` 或 resize API 的小程序不受影响。
@@ -211,6 +223,9 @@ Android、iOS 和 HarmonyOS 可以采用不同实现，只需满足以下结果�
 | JS-RSZ-005 | 移除指定监听或全部监听 | 仅剩余监听继续接收 |
 | JS-RSZ-006 | 某监听抛出异常 | 其他监听和生命周期仍执行 |
 | JS-RSZ-007 | 平台拒绝方向请求 | 不发送虚假 resize，页面继续可用 |
+| IOS-ORI-001 | 刘海或灵动岛位于横屏左侧 | 左侧导航控件位于 safe area 内，胶囊距右侧 safe area 10pt |
+| IOS-ORI-002 | 刘海或灵动岛位于横屏右侧 | 胶囊位于 safe area 内且不与标题重叠 |
+| IOS-ORI-003 | `getMenuButtonBoundingClientRect` | 返回值与原生胶囊最终 frame 一致 |
 
 前端测试至少覆盖 components、render 和 service 三个包。移动端测试由各平台分别提供，但必须使用上述 JS 用例验证最终行为。
 
@@ -232,4 +247,3 @@ Android、iOS 和 HarmonyOS 可以采用不同实现，只需满足以下结果�
 - [微信小程序：page-meta](https://developers.weixin.qq.com/miniprogram/dev/component/page-meta.html)
 - [微信小程序：wx.onWindowResize](https://developers.weixin.qq.com/miniprogram/dev/api/ui/window/wx.onWindowResize.html)
 - [微信小程序：wx.offWindowResize](https://developers.weixin.qq.com/miniprogram/dev/api/ui/window/wx.offWindowResize.html)
-
