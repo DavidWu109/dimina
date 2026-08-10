@@ -1,5 +1,6 @@
 import { callback, uuid } from '@dimina/common'
 import { navigateBack, navigateTo, redirectTo, reLaunch, switchTab } from './api/core/route'
+import { createWindowResizeEvent, emitWindowResize } from './api/core/ui/window/events'
 import env from './core/env'
 import hostEnv from './core/host-env'
 import loader from './core/loader'
@@ -238,7 +239,9 @@ class Service {
 
 		this.message.on('pageResize', (msg) => {
 			// 页面尺寸变化时执行
-			runtime.pageResize(msg)
+			const event = createWindowResizeEvent(msg.size)
+			runtime.pageResize({ ...msg, size: event })
+			emitWindowResize(event)
 		})
 
 		this.message.on('onTabItemTap', (msg) => {

@@ -168,6 +168,7 @@ public class DMPPageController: UIViewController {
     // View will appear
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
         navigationController?.setNavigationBarHidden(true, animated: false)
         setupNavigationBar()
         showPageLoadingIfNeeded()
@@ -191,6 +192,7 @@ public class DMPPageController: UIViewController {
     // View did appear
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
         interactivePopTransitionInProgress = false
         navigator?.pageControllerDidAppear(self)
         reportDidBecomeVisibleForTracking()
@@ -1287,6 +1289,11 @@ public class DMPPageController: UIViewController {
     // Get WebView instance
     public func getWebView() -> DMPWebview {
         return webview
+    }
+
+    @MainActor
+    func applyConfiguredPageOrientation() {
+        app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
     }
 
     // Called when page is shown

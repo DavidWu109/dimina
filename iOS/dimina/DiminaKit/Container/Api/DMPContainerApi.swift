@@ -85,6 +85,7 @@ public class DMPContainerApi: NSObject {
         _ = FileSystemAPI(app: app)
         _ = MenuAPI(app: app)
         _ = NavigationBarAPI(app: app)
+        _ = PageOrientationAPI(app: app)
         _ = ScrollAPI(app: app)
         _ = NativeComponentAPI(app: app)
         _ = TabBarAPI(app: app)

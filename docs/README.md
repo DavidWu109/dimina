@@ -11,6 +11,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 了解 Dimina 如何工作 | [架构总览](./Architecture-Diagram.md) | [实现细节](./Architecture-Details.md) |
 | 判断某项能力是否可用 | [能力参考](./API-Reference.md) | 对应平台的 SDK 接入文档 |
 | 排查页面或组件初始化时序 | [生命周期](./Architecture-Lifecycle.md) | `service` / `render` 运行时源码与测试 |
+| 实现页面方向与窗口尺寸事件 | [页面方向与窗口尺寸事件协议](./Page-Orientation-and-Window-Resize.md) | [能力参考](./API-Reference.md)与平台 SDK |
 | 接入内置包或远程更新 | [小程序包更新](./MiniProgram-Update.md) | 对应平台的 Bundle Loader 实现 |
 | 参与前端框架开发 | [前端工程说明](../fe/README.md) | [贡献指南](../CONTRIBUTING.md) |
 

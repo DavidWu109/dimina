@@ -109,9 +109,21 @@ public class DMPBundleAppConfig {
         } else if let homeButton = appWindowConfig["homeButton"] as? Bool {
             mergedConfig["homeButton"] = homeButton
         }
+        mergedConfig["pageOrientation"] = getPageOrientation(pagePath: pagePath).rawValue
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
         
         return mergedConfig
+    }
+
+    /// Resolves orientation using WeChat's precedence rules: page config wins
+    /// over `app.json.window`; missing or invalid values fall back to portrait.
+    func getPageOrientation(pagePath: String) -> DMPPageOrientation {
+        let pagePrivateConfig = modules[pagePath] as? [String: Any] ?? [:]
+        let appWindowConfig = app["window"] as? [String: Any] ?? [:]
+        let rawValue = (pagePrivateConfig["pageOrientation"] as? String)
+            ?? (appWindowConfig["pageOrientation"] as? String)
+
+        return rawValue.flatMap(DMPPageOrientation.init(rawValue:)) ?? .portrait
     }
 
     func getTabBarIndex(pagePath: String) -> Int {

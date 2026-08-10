@@ -119,6 +119,79 @@ describe('runtime template components', () => {
 		])
 	})
 
+	it('coalesces real viewport changes into one pageResize message per frame', async () => {
+		const loader = (await import('../src/core/loader.js')).default
+		const message = (await import('../src/core/message.js')).default
+		let frameCallback
+		window.requestAnimationFrame = vi.fn((callback) => {
+			frameCallback = callback
+			return 1
+		})
+		window.cancelAnimationFrame = vi.fn()
+		Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 })
+		Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 844 })
+		window.DiminaRenderBridge = {
+			invoke: vi.fn(),
+			publish: vi.fn(),
+		}
+		message.init()
+		vi.spyOn(loader, 'getModuleByPath').mockReturnValue({
+			moduleInfo: {
+				id: 'resize-page',
+				usingComponents: {},
+				tplComponents: {},
+				render() {
+					return h('main', 'ready')
+				},
+			},
+		})
+
+		const options = runtime.makeOptions({
+			path: 'pages/resize/index',
+			bridgeId: 'bridge-resize',
+			pageId: 'page-resize',
+		})
+		const app = createApp(options.app)
+		const root = document.createElement('div')
+		document.body.append(root)
+		app.mount(root)
+		window.DiminaRenderBridge.onMessage({
+			type: 'page-resize',
+			body: { data: {} },
+		})
+		await vi.waitFor(() => expect(root.textContent).toBe('ready'))
+		window.DiminaRenderBridge.publish.mockClear()
+
+		window.innerWidth = 844
+		window.innerHeight = 390
+		window.dispatchEvent(new window.Event('resize'))
+		window.dispatchEvent(new window.Event('resize'))
+		expect(window.requestAnimationFrame).toHaveBeenCalledOnce()
+		expect(window.DiminaRenderBridge.publish).not.toHaveBeenCalled()
+
+		frameCallback()
+		const resizeMessages = window.DiminaRenderBridge.publish.mock.calls
+			.map(([payload]) => JSON.parse(payload))
+			.filter(sent => sent.type === 'pageResize')
+		expect(resizeMessages).toEqual([{
+			type: 'pageResize',
+			target: 'service',
+			body: {
+				bridgeId: 'bridge-resize',
+				size: { windowWidth: 844, windowHeight: 390 },
+			},
+		}])
+
+		window.dispatchEvent(new window.Event('resize'))
+		frameCallback()
+		const allResizeMessages = window.DiminaRenderBridge.publish.mock.calls
+			.map(([payload]) => JSON.parse(payload))
+			.filter(sent => sent.type === 'pageResize')
+		expect(allResizeMessages).toHaveLength(1)
+
+		app.unmount()
+	})
+
 	it('resolves a slotted component parent from the rendered element tree', () => {
 		const parentRoot = document.createElement('div')
 		const childRoot = document.createElement('div')

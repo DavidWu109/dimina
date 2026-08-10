@@ -118,6 +118,7 @@ public class DMPTabBarContainerController: UIViewController {
         oldPC?.view.removeFromSuperview()
         // attach 新 tab 的 view
         attachChildView(newPC)
+        newPC.applyConfiguredPageOrientation()
         newPC.reportDidBecomeVisibleForTracking()
 
         selectedIndex = index

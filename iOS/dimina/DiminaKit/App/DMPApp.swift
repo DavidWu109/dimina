@@ -41,6 +41,9 @@ public class DMPApp {
     private var appIndex: Int
     private var appConfig: DMPAppConfig?
     private var trackingHandler: DMPTrackingHandler?
+    private var currentPageOrientation: DMPPageOrientation?
+    private var pageOrientationOverrides: [Int: DMPPageOrientation] = [:]
+    private var hasRequestedPageOrientation = false
 
     private lazy var navigator: DMPNavigator? = DMPNavigator(app: self)
 
@@ -99,6 +102,7 @@ public class DMPApp {
             if let preparedLaunch {
                 cancelPreparedLaunch(preparedLaunch)
             }
+            resetPageOrientationIfNeeded()
             hideLoading()
             DMPLog.app.error("launch failed: \(error.localizedDescription)")
         }
@@ -200,6 +204,7 @@ public class DMPApp {
         }
         navigator?.cancelPreparedLaunch(preparedLaunch)
         preparedLaunchID = nil
+        resetPageOrientationIfNeeded()
         hideLoading()
     }
 
@@ -217,6 +222,56 @@ public class DMPApp {
 
     public func getAppConfig() -> DMPAppConfig? {
         return appConfig
+    }
+
+    @MainActor
+    func applyPageOrientation(for pagePath: String, webViewId: Int? = nil) {
+        let orientation = webViewId.flatMap { pageOrientationOverrides[$0] }
+            ?? bundleAppConfig?.getPageOrientation(pagePath: pagePath)
+            ?? .portrait
+        applyPageOrientation(orientation)
+    }
+
+    /// Applies a dynamic `page-meta` override only when the originating page
+    /// is still visible. Hidden pages must not rotate the active page.
+    @MainActor
+    func applyPageOrientation(_ orientation: DMPPageOrientation?, webViewId: Int) {
+        if let orientation {
+            pageOrientationOverrides[webViewId] = orientation
+        } else {
+            pageOrientationOverrides.removeValue(forKey: webViewId)
+        }
+
+        guard navigator?.getCurrentPageController()?.getWebView().getWebViewId() == webViewId else {
+            return
+        }
+
+        if let pagePath = navigator?.getCurrentRoute()?.path {
+            applyPageOrientation(for: pagePath, webViewId: webViewId)
+        }
+    }
+
+    @MainActor
+    private func applyPageOrientation(_ orientation: DMPPageOrientation) {
+        guard !isDestroyed, currentPageOrientation != orientation,
+              let handler = appConfig?.setPageOrientation else {
+            return
+        }
+
+        currentPageOrientation = orientation
+        hasRequestedPageOrientation = true
+        handler(orientation)
+    }
+
+    @MainActor
+    private func resetPageOrientationIfNeeded() {
+        let shouldResetHost = hasRequestedPageOrientation
+        hasRequestedPageOrientation = false
+        currentPageOrientation = nil
+        pageOrientationOverrides.removeAll()
+        if shouldResetHost {
+            appConfig?.resetPageOrientation?()
+        }
     }
 
     public func getCurrentWebViewId() -> Int {
@@ -648,6 +703,7 @@ public class DMPApp {
         guard let navigator else {
             throw DMPLaunchError.invalidAppState
         }
+        applyPageOrientation(for: route.pagePath)
         return try await navigator.prepareLaunch(to: route.pagePath, query: query)
     }
 
@@ -740,6 +796,12 @@ public class DMPApp {
         }
         isDestroyed = true
         preparedLaunchID = nil
+        let resetPageOrientation = hasRequestedPageOrientation
+            ? appConfig?.resetPageOrientation
+            : nil
+        hasRequestedPageOrientation = false
+        currentPageOrientation = nil
+        pageOrientationOverrides.removeAll()
         DMPLog.app.info("destroy, appId=\(appId)")
         reportTrackingEvent(.destroyed)
         navigator?.tearDownNavigation()
@@ -770,6 +832,14 @@ public class DMPApp {
         pageCapsuleProvider = nil
         pageNavigationControlsProvider = nil
         trackingHandler = nil
+
+        if let resetPageOrientation {
+            if Thread.isMainThread {
+                resetPageOrientation()
+            } else {
+                DispatchQueue.main.async(execute: resetPageOrientation)
+            }
+        }
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 

@@ -150,6 +150,17 @@ function scrollPage() {
 	})
 }
 
+function updatePageOrientation() {
+	const supportedOrientations = new Set(['auto', 'portrait', 'landscape'])
+	const pageOrientation = supportedOrientations.has(props.pageOrientation)
+		? props.pageOrientation
+		: ''
+	invokeAPI('__setPageOrientation', {
+		bridgeId: info.bridgeId,
+		params: { pageOrientation },
+	})
+}
+
 function handleResize(event) {
 	triggerEvent('resize', {
 		event,
@@ -180,6 +191,7 @@ watch(
 	updatePageStyle,
 )
 watch(() => [props.scrollTop, props.scrollDuration], scrollPage)
+watch(() => props.pageOrientation, updatePageOrientation)
 
 onMounted(() => {
 	pageElement = document.querySelector('.dd-page')
@@ -189,11 +201,18 @@ onMounted(() => {
 	updateBackground()
 	updatePageStyle()
 	scrollPage()
+	updatePageOrientation()
 	window.addEventListener('resize', handleResize)
 	window.addEventListener('scroll', handleScroll, { passive: true })
 })
 
 onBeforeUnmount(() => {
+	if (props.pageOrientation) {
+		invokeAPI('__setPageOrientation', {
+			bridgeId: info.bridgeId,
+			params: { pageOrientation: '' },
+		})
+	}
 	window.removeEventListener('resize', handleResize)
 	window.removeEventListener('scroll', handleScroll)
 	if (pageElement) {

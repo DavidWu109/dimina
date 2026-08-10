@@ -749,6 +749,8 @@ class Runtime {
 							let stopStyleScopeSync = () => {}
 
 							let ticking = false
+							let resizeFrame = null
+							let lastWindowSize = null
 							const handleScroll = () => {
 								if (!ticking) {
 									window.requestAnimationFrame(() => {
@@ -766,6 +768,26 @@ class Runtime {
 									ticking = true
 								}
 							}
+							const handleResize = () => {
+								if (resizeFrame !== null) return
+								resizeFrame = window.requestAnimationFrame(() => {
+									resizeFrame = null
+									const size = {
+										windowWidth: window.innerWidth,
+										windowHeight: window.innerHeight,
+									}
+									if (
+										lastWindowSize?.windowWidth === size.windowWidth
+										&& lastWindowSize?.windowHeight === size.windowHeight
+									) return
+									lastWindowSize = size
+									message.send({
+										type: 'pageResize',
+										target: 'service',
+										body: { bridgeId, size },
+									})
+								})
+							}
 
 							onMounted(() => {
 								stopStyleScopeSync = installStyleScopeSync(
@@ -773,7 +795,12 @@ class Runtime {
 									globalStyleScopeIds,
 									sId,
 								)
+								lastWindowSize = {
+									windowWidth: window.innerWidth,
+									windowHeight: window.innerHeight,
+								}
 								window.addEventListener('scroll', handleScroll, { passive: true })
+								window.addEventListener('resize', handleResize)
 								nextTick(() => {
 									message.send({
 										type: 'pageReady',
@@ -789,6 +816,11 @@ class Runtime {
 							onUnmounted(() => {
 								stopStyleScopeSync()
 								window.removeEventListener('scroll', handleScroll)
+								window.removeEventListener('resize', handleResize)
+								if (resizeFrame !== null) {
+									window.cancelAnimationFrame(resizeFrame)
+									resizeFrame = null
+								}
 							})
 
 						const { data, templateData } = createTemplateData()
