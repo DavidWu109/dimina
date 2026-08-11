@@ -169,7 +169,12 @@ public class DMPPageController: UIViewController {
     // View will appear
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
+        // During an interactive pop UIKit calls viewWillAppear for the
+        // destination before the gesture has committed. Defer orientation to
+        // viewDidAppear so a cancelled gesture cannot rotate to the wrong page.
+        if transitionCoordinator?.isInteractive != true {
+            app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
+        }
         navigationController?.setNavigationBarHidden(true, animated: false)
         setupNavigationBar()
         showPageLoadingIfNeeded()
@@ -933,6 +938,11 @@ public class DMPPageController: UIViewController {
         }
         isClosingMiniProgram = true
         let appToDestroy = app
+
+        // Restore host-owned orientation before the close transition exposes
+        // the underlying page. `destroy()` remains an idempotent fallback for
+        // non-UI teardown paths.
+        appToDestroy?.beginHostExit()
 
         dismissMiniProgramMenu()
         customNavigationCapsuleMoreButton?.isEnabled = false

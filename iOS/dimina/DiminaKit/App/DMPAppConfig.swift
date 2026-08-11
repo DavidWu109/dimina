@@ -72,12 +72,12 @@ public struct DMPAppConfig : Identifiable {
     /// Applies the orientation resolved for the currently visible page.
     /// Dimina invokes this on the main thread. The host remains responsible for
     /// updating its application-level orientation mask and requesting rotation.
-    public var setPageOrientation: ((_ orientation: DMPPageOrientation) -> Void)?
+    public var setPageOrientation: (@MainActor (_ orientation: DMPPageOrientation) -> Void)?
 
     /// Restores the host orientation state captured before the mini program
     /// became active. Called when the app is destroyed after having requested
     /// at least one page orientation.
-    public var resetPageOrientation: (() -> Void)?
+    public var resetPageOrientation: (@MainActor () -> Void)?
 
     // 符合Identifiable协议的id属性
     public var id: String { appId }

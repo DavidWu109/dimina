@@ -59,6 +59,7 @@ public class DMPApp {
     private(set) var pageNavigationControlsProvider: DMPPageNavigationControlsProvider?
 
     private var isLaunching = false
+    private var isExiting = false
     private var isDestroyed = false
     private var preparedLaunchID: UUID?
     private var developerPreviewClient: DMPDeveloperPreviewClient?
@@ -253,7 +254,7 @@ public class DMPApp {
 
     @MainActor
     private func applyPageOrientation(_ orientation: DMPPageOrientation) {
-        guard !isDestroyed, currentPageOrientation != orientation,
+        guard !isDestroyed, !isExiting, currentPageOrientation != orientation,
               let handler = appConfig?.setPageOrientation else {
             return
         }
@@ -272,6 +273,20 @@ public class DMPApp {
         if shouldResetHost {
             appConfig?.resetPageOrientation?()
         }
+    }
+
+    /// Begins the host transition away from this mini program.
+    ///
+    /// Host-owned UI state must be restored before the navigation or dismissal
+    /// animation starts. Waiting for `destroy()` leaves a window where the host
+    /// page is already visible but still constrained by the mini-program mask.
+    /// Marking the app as exiting also rejects late page-meta/page lifecycle
+    /// orientation requests from the outgoing controller.
+    @MainActor
+    public func beginHostExit() {
+        guard !isDestroyed, !isExiting else { return }
+        isExiting = true
+        resetPageOrientationIfNeeded()
     }
 
     public func getCurrentWebViewId() -> Int {
@@ -795,6 +810,7 @@ public class DMPApp {
             return
         }
         isDestroyed = true
+        isExiting = true
         preparedLaunchID = nil
         let resetPageOrientation = hasRequestedPageOrientation
             ? appConfig?.resetPageOrientation
@@ -834,10 +850,8 @@ public class DMPApp {
         trackingHandler = nil
 
         if let resetPageOrientation {
-            if Thread.isMainThread {
+            Task { @MainActor in
                 resetPageOrientation()
-            } else {
-                DispatchQueue.main.async(execute: resetPageOrientation)
             }
         }
 
