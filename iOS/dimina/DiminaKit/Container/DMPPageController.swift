@@ -144,6 +144,7 @@ public class DMPPageController: UIViewController {
         // Add child view controller
         if let hostingController = hostingController {
             addChild(hostingController)
+            hostingController.view.backgroundColor = .clear
             view.addSubview(hostingController.view)
             hostingController.view.translatesAutoresizingMaskIntoConstraints = false
             webViewTopToNavigationConstraint = hostingController.view.topAnchor.constraint(
@@ -1400,6 +1401,6 @@ public struct DMPWebViewContainer: View {
         ZStack {
             DMPWebview.WebViewRepresentable(webview: webview)
         }
-        .ignoresSafeArea(edges: [.top, .bottom])
+        .ignoresSafeArea(.container, edges: .all)
     }
 }
