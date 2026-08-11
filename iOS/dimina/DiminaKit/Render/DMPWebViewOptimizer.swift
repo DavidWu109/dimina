@@ -243,18 +243,16 @@ public class DMPWebViewOptimizer {
     }
     
     private func applyScrollOptimizations(to webView: WKWebView) {
-        // Scroll optimization
-        if let scrollView = webView.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
-            scrollView.showsVerticalScrollIndicator = false
-            scrollView.showsHorizontalScrollIndicator = false
-            
-            // iOS 13+ scroll optimization
-            if #available(iOS 13.0, *) {
-                scrollView.automaticallyAdjustsScrollIndicatorInsets = false
-            }
-            if #available(iOS 11.0, *) {
-                scrollView.contentInsetAdjustmentBehavior = .never
-            }
+        let scrollView = webView.scrollView
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.showsHorizontalScrollIndicator = false
+
+        // iOS 13+ scroll optimization
+        if #available(iOS 13.0, *) {
+            scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+        }
+        if #available(iOS 11.0, *) {
+            scrollView.contentInsetAdjustmentBehavior = .never
         }
     }
     
