@@ -61,6 +61,11 @@ public class DMPNavigator: NSObject {
     // 页面记录
     private var pageRecords: [DMPPageRecord] = []
 
+    // Dimina shares the host UINavigationController. Keep the exact controller
+    // that owns this mini-program's root so host integrations can replace only
+    // this app's slice of the navigation stack during a cold reopen.
+    private weak var miniProgramRootViewController: UIViewController?
+
     // 公开初始化方法
     public init(app: DMPApp? = nil) {
         self.app = app
@@ -205,6 +210,7 @@ public class DMPNavigator: NSObject {
         }
 
         pageRecords.append(preparedLaunch.pageRecord)
+        miniProgramRootViewController = preparedLaunch.rootViewController
         preparedLaunch.isActivated = true
         pageLifecycle?.onShow(
             webviewId: preparedLaunch.firstPageController.getWebView().getWebViewId()
@@ -350,7 +356,8 @@ public class DMPNavigator: NSObject {
         }
 
         let currentIndex = navigationController.viewControllers.count - 1
-        let isReplacingRootPage = pageRecords.count <= 1
+        let isReplacingRootPage = navigationController.topViewController
+            === miniProgramRootViewController
 
         // 如果当前只有一个页面，则需要特殊处理
         if currentIndex == 0 {
@@ -380,6 +387,7 @@ public class DMPNavigator: NSObject {
 
             let viewControllers = [pageController]
             navigationController.setViewControllers(viewControllers, animated: false)
+            miniProgramRootViewController = pageController
 
             pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
 
@@ -413,6 +421,9 @@ public class DMPNavigator: NSObject {
         viewControllers.removeLast()
         viewControllers.append(pageController)
         navigationController.setViewControllers(viewControllers, animated: false)
+        if isReplacingRootPage {
+            miniProgramRootViewController = pageController
+        }
         pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
     }
 
@@ -449,6 +460,35 @@ public class DMPNavigator: NSObject {
     /// 获取当前页面记录
     public func getTopPageRecord() -> DMPPageRecord? {
         return pageRecords.last
+    }
+
+    /// The exact root controller owned by this mini-program inside the shared
+    /// host navigation controller. Its identity may change after a root
+    /// redirect, so callers must fetch it immediately before replacing the
+    /// mini-program stack segment.
+    @MainActor
+    public func getMiniProgramRootViewController() -> UIViewController? {
+        miniProgramRootViewController
+    }
+
+    /// The logical entry to restore for a host-level cold reopen.
+    ///
+    /// Pushed detail pages do not affect this value. A root redirect replaces
+    /// the root controller, while a tab switch changes the active child of the
+    /// root tab container, so both cases are reflected without relying on the
+    /// physical page-record ordering.
+    @MainActor
+    public func getColdReopenRoute() -> (path: String, query: [String: Any]?)? {
+        if let container = miniProgramRootViewController as? DMPTabBarContainerController,
+           let webView = container.currentPageController?.getWebView() {
+            return (webView.getPagePath(), webView.getQuery())
+        }
+        if let pageController = miniProgramRootViewController as? DMPPageController {
+            let webView = pageController.getWebView()
+            return (webView.getPagePath(), webView.getQuery())
+        }
+        guard let record = pageRecords.first else { return nil }
+        return (record.pagePath, record.query)
     }
 
     /// Returns the page that is actually visible. A tab container owns its
@@ -494,6 +534,7 @@ extension DMPNavigator {
         let restore = { [weak self] in
             guard let self else { return }
             self.restoreHostInteractivePopGestureIfNeeded()
+            self.miniProgramRootViewController = nil
             self.navigationController = nil
         }
 
