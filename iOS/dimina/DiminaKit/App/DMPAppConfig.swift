@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// Display orientation requested by a mini-program page.
 ///
@@ -78,6 +79,13 @@ public struct DMPAppConfig : Identifiable {
     /// became active. Called when the app is destroyed after having requested
     /// at least one page orientation.
     public var resetPageOrientation: (@MainActor () -> Void)?
+
+    /// Notifies embedded hosts when navigation replaces the mini-program root.
+    /// Hosts can use this to transfer route metadata owned outside Dimina.
+    public var rootViewControllerDidChange: (@MainActor (
+        _ previous: UIViewController?,
+        _ current: UIViewController
+    ) -> Void)?
 
     // 符合Identifiable协议的id属性
     public var id: String { appId }

@@ -210,7 +210,7 @@ public class DMPNavigator: NSObject {
         }
 
         pageRecords.append(preparedLaunch.pageRecord)
-        miniProgramRootViewController = preparedLaunch.rootViewController
+        updateMiniProgramRootViewController(preparedLaunch.rootViewController)
         preparedLaunch.isActivated = true
         pageLifecycle?.onShow(
             webviewId: preparedLaunch.firstPageController.getWebView().getWebViewId()
@@ -387,7 +387,7 @@ public class DMPNavigator: NSObject {
 
             let viewControllers = [pageController]
             navigationController.setViewControllers(viewControllers, animated: false)
-            miniProgramRootViewController = pageController
+            updateMiniProgramRootViewController(pageController)
 
             pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
 
@@ -422,7 +422,7 @@ public class DMPNavigator: NSObject {
         viewControllers.append(pageController)
         navigationController.setViewControllers(viewControllers, animated: false)
         if isReplacingRootPage {
-            miniProgramRootViewController = pageController
+            updateMiniProgramRootViewController(pageController)
         }
         pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
     }
@@ -430,15 +430,55 @@ public class DMPNavigator: NSObject {
     @MainActor
     public func relaunch(to path: String, query: [String: Any]? = nil, animated: Bool = true) async
     {
-        guard let navigationController = navigationController else {
+        guard let navigationController,
+              let currentRoot = miniProgramRootViewController,
+              let rootIndex = navigationController.viewControllers.firstIndex(where: {
+                  $0 === currentRoot
+              }) else {
             print("导航控制器未设置")
             return
         }
 
-        navigationController.popToRootViewController(animated: animated)
-        pageRecords.removeAll()
+        let preparedLaunch: DMPPreparedLaunch
+        do {
+            preparedLaunch = try await prepareLaunch(to: path, query: query)
+        } catch {
+            DMPLog.app.error("DMPNavigator relaunch prepare failed: \(error.localizedDescription)")
+            return
+        }
 
-        await launch(to: path, query: query, animated: animated)
+        let previousViewControllers = navigationController.viewControllers
+        guard miniProgramRootViewController === currentRoot,
+              rootIndex < previousViewControllers.count,
+              previousViewControllers[rootIndex] === currentRoot else {
+            cancelPreparedLaunch(preparedLaunch)
+            return
+        }
+
+        // Dimina shares the host navigation controller. Replace only the
+        // mini-program-owned suffix so host pages below it remain intact.
+        let ownedSuffix = previousViewControllers[rootIndex...]
+        guard ownedSuffix.allSatisfy({ controller in
+            controller is DMPPageController || controller is DMPTabBarContainerController
+        }) else {
+            cancelPreparedLaunch(preparedLaunch)
+            return
+        }
+
+        let previousPageRecords = pageRecords
+        pageRecords.removeAll()
+        var nextViewControllers = Array(previousViewControllers[..<rootIndex])
+        nextViewControllers.append(preparedLaunch.rootViewController)
+        navigationController.setViewControllers(nextViewControllers, animated: animated)
+
+        do {
+            try activatePreparedLaunch(preparedLaunch)
+        } catch {
+            navigationController.setViewControllers(previousViewControllers, animated: false)
+            pageRecords = previousPageRecords
+            cancelPreparedLaunch(preparedLaunch)
+            DMPLog.app.error("DMPNavigator relaunch activation failed: \(error.localizedDescription)")
+        }
     }
 
     /// 返回到根页面
@@ -469,6 +509,14 @@ public class DMPNavigator: NSObject {
     @MainActor
     public func getMiniProgramRootViewController() -> UIViewController? {
         miniProgramRootViewController
+    }
+
+    @MainActor
+    private func updateMiniProgramRootViewController(_ controller: UIViewController) {
+        let previous = miniProgramRootViewController
+        miniProgramRootViewController = controller
+        guard previous !== controller else { return }
+        app?.getAppConfig()?.rootViewControllerDidChange?(previous, controller)
     }
 
     /// The logical entry to restore for a host-level cold reopen.
