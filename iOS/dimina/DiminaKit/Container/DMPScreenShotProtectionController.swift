@@ -1,88 +1,75 @@
-//
-//  DMPScreenShotProtectionController.swift
-//  Dimina
-//
-
+// Screenshot canvas lifecycle adapted from Expo SecureWindowCanvas (MIT).
+// https://github.com/expo/expo/pull/49372
 import UIKit
 
-/// Applies capture protection to the mini-program navigation container.
-///
-/// iOS has no public window-level screenshot-disable API. Secure text fields,
-/// however, are omitted from system captures. This controller hosts the target
-/// layer inside that secure rendering subtree while protection is enabled and
-/// restores the original layer hierarchy when the page changes or exits.
+/// 采用 Expo 的安全输入框图层方案，在小程序受限页面展示期间保护所在窗口。
+/// 依赖系统安全输入框的绘制行为，不是 iOS 官方的任意视图防截屏 API。
+@MainActor
 final class DMPScreenShotProtectionController {
-    private weak var protectedView: UIView?
-    private weak var originalSuperlayer: CALayer?
-    private var originalLayerIndex: UInt32 = 0
-    private var secureTextField: UITextField?
+    private var canvas: DMPSecureWindowCanvas?
 
     @discardableResult
-    @MainActor
     func setProtected(_ protected: Bool, view: UIView) -> Bool {
-        if protected {
-            return enable(on: view)
-        }
-        reset()
-        return true
-    }
-
-    @MainActor
-    func reset() {
-        guard let secureTextField else { return }
-
-        if let protectedView,
-           let destinationLayer = originalSuperlayer ?? protectedView.superview?.layer {
-            protectedView.layer.removeFromSuperlayer()
-            let insertionIndex = min(
-                originalLayerIndex,
-                UInt32(destinationLayer.sublayers?.count ?? 0)
-            )
-            destinationLayer.insertSublayer(protectedView.layer, at: insertionIndex)
-            protectedView.superview?.setNeedsLayout()
-            protectedView.setNeedsLayout()
-        }
-
-        secureTextField.removeFromSuperview()
-        self.secureTextField = nil
-        protectedView = nil
-        originalSuperlayer = nil
-        originalLayerIndex = 0
-    }
-
-    @MainActor
-    private func enable(on view: UIView) -> Bool {
-        if protectedView === view, secureTextField != nil {
+        guard protected else {
+            reset()
             return true
         }
-        reset()
-
-        guard let superview = view.superview,
-              let superlayer = view.layer.superlayer else {
+        guard let window = view.window else { return false }
+        if canvas?.view === window {
+            return true
+        }
+        // 先确认新容器挂载成功，失败时保留现有保护，允许后续生命周期重试。
+        guard let nextCanvas = DMPSecureWindowCanvas(protecting: window) else {
             return false
         }
-
-        let textField = UITextField(frame: view.frame)
-        textField.isUserInteractionEnabled = false
-        textField.backgroundColor = .black
-        textField.autoresizingMask = view.autoresizingMask
-        superview.insertSubview(textField, belowSubview: view)
-        textField.isSecureTextEntry = true
-        textField.layoutIfNeeded()
-
-        guard let secureContainerLayer = textField.subviews.first?.layer else {
-            textField.removeFromSuperview()
-            return false
-        }
-
-        let layerIndex = superlayer.sublayers?.firstIndex(where: { $0 === view.layer }) ?? 0
-        originalLayerIndex = UInt32(layerIndex)
-        originalSuperlayer = superlayer
-        protectedView = view
-        secureTextField = textField
-
-        view.layer.removeFromSuperlayer()
-        secureContainerLayer.addSublayer(view.layer)
+        canvas?.restore()
+        canvas = nextCanvas
         return true
+    }
+
+    func reset() {
+        canvas?.restore()
+        canvas = nil
+    }
+}
+
+@MainActor
+private final class DMPSecureWindowCanvas {
+    private let textField: UITextField
+    private let originalParent: CALayer
+    private let originalIndex: UInt32
+    private(set) weak var view: UIView?
+
+    init?(protecting view: UIWindow) {
+        guard let parent = view.layer.superlayer else { return nil }
+        let index = parent.sublayers?.firstIndex(where: { $0 === view.layer }) ?? 0
+        let field = UITextField()
+        field.isSecureTextEntry = true
+        field.isUserInteractionEnabled = false
+        field.backgroundColor = .clear
+        // 使用父图层坐标系，保留目标视图原有的位置和尺寸。
+        field.frame = view.bounds
+        // 与 Expo 一致：只挂载 layer，不插入 UIView 层级或读取 subviews。
+        parent.addSublayer(field.layer)
+        guard let secureLayer = field.layer.sublayers?.first else {
+            field.layer.removeFromSuperlayer()
+            return nil
+        }
+        view.layer.removeFromSuperlayer()
+        secureLayer.addSublayer(view.layer)
+        textField = field
+        originalParent = parent
+        originalIndex = UInt32(index)
+        self.view = view
+    }
+
+    func restore() {
+        defer { textField.layer.removeFromSuperlayer() }
+        guard let view else { return }
+        view.layer.removeFromSuperlayer()
+        originalParent.insertSublayer(view.layer, at: min(originalIndex, UInt32(originalParent.sublayers?.count ?? 0)))
+        view.superview?.setNeedsLayout()
+        view.setNeedsLayout()
+        self.view = nil
     }
 }

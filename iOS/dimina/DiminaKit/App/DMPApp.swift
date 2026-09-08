@@ -293,6 +293,7 @@ public class DMPApp {
         let forbidden = bundleAppConfig?.isScreenShotForbidden(pagePath: pagePath) ?? false
         guard currentScreenShotForbidden != forbidden else { return }
         guard screenShotProtectionController.setProtected(forbidden, view: navigationView) else {
+            DMPLogger.debug("[screen-protection] attach failed; will retry for page", pagePath)
             return
         }
         currentScreenShotForbidden = forbidden
