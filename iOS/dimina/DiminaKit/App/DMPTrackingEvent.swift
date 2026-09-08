@@ -24,7 +24,7 @@ public enum DMPTrackingEvent {
 
     /// The native page became visible. A new visit identifier is generated for
     /// every appearance so revisiting the same path is still a new page view.
-    case pageDidBecomeVisible(path: String, webViewId: Int, visitId: String)
+    case pageDidBecomeVisible(path: String, webViewId: Int, visitId: String, query: [String: Any] = [:])
 
     /// Clears a pending visibility signal when a page leaves the screen before
     /// its first render completes.

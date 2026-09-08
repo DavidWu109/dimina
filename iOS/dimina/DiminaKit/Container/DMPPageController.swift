@@ -1359,7 +1359,8 @@ public class DMPPageController: UIViewController {
             .pageDidBecomeVisible(
                 path: pagePath,
                 webViewId: webview.getWebViewId(),
-                visitId: UUID().uuidString
+                visitId: UUID().uuidString,
+                query: query ?? [:]
             )
         )
     }
