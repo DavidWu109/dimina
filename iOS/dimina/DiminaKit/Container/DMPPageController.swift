@@ -64,6 +64,7 @@ public class DMPPageController: UIViewController {
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
     private var isHomeButtonHiddenByAPI = false
+    private var hasNativeWebViewComponent = false
     /// 页面自己的 navStyle 缓存，首次 setupNavigationBar 时写入，避免被 navigator 栈操作污染
     private var cachedNavStyle: [String: Any]?
 
@@ -124,6 +125,14 @@ public class DMPPageController: UIViewController {
         DMPLogger.debug("🔧 DMPPageController: WebView (ID: \(webview.getWebViewId())) configuration completed, current page path: \(webview.getPagePath())")
         
         app?.render?.setupJSBridge(webViewId: webview.getWebViewId())
+        webview.onNativeWebViewPresenceChanged = { [weak self] isPresent in
+            guard let self, self.hasNativeWebViewComponent != isPresent else { return }
+            self.hasNativeWebViewComponent = isPresent
+            guard self.isViewLoaded, !self.isWebViewDestroyed else { return }
+            self.setupNavigationBar()
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        }
 
     }
 
@@ -199,6 +208,7 @@ public class DMPPageController: UIViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
+        app?.applyScreenShotProtection(for: pagePath)
         interactivePopTransitionInProgress = false
         navigator?.pageControllerDidAppear(self)
         reportDidBecomeVisibleForTracking()
@@ -1275,7 +1285,14 @@ public class DMPPageController: UIViewController {
         updateNavigationTitle(title)
         updateNavigationColor(backgroundColor: backgroundColor, textColor: textColor, darkStyle: darkStyle)
 
+        isCustomNavigationStyle = DMPNativeWebViewPresentation.usesCustomNavigation(
+            requested: isCustomNavigationStyle,
+            hasWebView: hasNativeWebViewComponent
+        )
         customNavigationBar?.isHidden = isCustomNavigationStyle
+        // Deactivate before activating the alternative to avoid conflicting top anchors.
+        webViewTopToNavigationConstraint?.isActive = false
+        webViewTopToViewConstraint?.isActive = false
         webViewTopToNavigationConstraint?.isActive = !isCustomNavigationStyle
         webViewTopToViewConstraint?.isActive = isCustomNavigationStyle
 
@@ -1366,6 +1383,7 @@ public class DMPPageController: UIViewController {
         DMPLogger.debug("🗑️ DMPPageController: Destroy WebView (ID: \(webview.getWebViewId()))")
         isWebViewDestroyed = true
         webview.onHostReadinessChanged = nil
+        webview.onNativeWebViewPresenceChanged = nil
         
         // Notify page unload
         if let app = app {

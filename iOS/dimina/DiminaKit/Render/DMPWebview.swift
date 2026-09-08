@@ -115,6 +115,8 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     public var appName: String
     public var onLoadingStateChanged: ((Bool) -> Void)?
     public var onHostReadinessChanged: ((Bool) -> Void)?
+    /// Native WebView components require the owning page's standard navigation bar.
+    var onNativeWebViewPresenceChanged: ((Bool) -> Void)?
 
     // Publish notification when state changes
     @Published public var poolState: DMPWebViewState = .available {

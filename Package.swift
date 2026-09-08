@@ -43,6 +43,11 @@ let package = Package(
                 .copy("Resources/JsApp.bundle"),
                 .copy("Resources/JsSdk.bundle"),
             ]
+        ),
+        .testTarget(
+            name: "DiminaTests",
+            dependencies: ["Dimina"],
+            path: "Tests/DiminaTests"
         )
     ],
     swiftLanguageModes: [.v5]

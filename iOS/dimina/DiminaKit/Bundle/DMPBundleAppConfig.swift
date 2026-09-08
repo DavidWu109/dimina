@@ -110,6 +110,7 @@ public class DMPBundleAppConfig {
             mergedConfig["homeButton"] = homeButton
         }
         mergedConfig["pageOrientation"] = getPageOrientation(pagePath: pagePath).rawValue
+        mergedConfig["screenShotForbidden"] = isScreenShotForbidden(pagePath: pagePath)
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
         
         return mergedConfig
@@ -124,6 +125,17 @@ public class DMPBundleAppConfig {
             ?? (appWindowConfig["pageOrientation"] as? String)
 
         return rawValue.flatMap(DMPPageOrientation.init(rawValue:)) ?? .portrait
+    }
+
+    /// Resolves screenshot protection with page configuration taking priority
+    /// over `app.window`. An explicit page-level `false` must not fall back to
+    /// the global value.
+    func isScreenShotForbidden(pagePath: String) -> Bool {
+        let pagePrivateConfig = modules[pagePath] as? [String: Any] ?? [:]
+        let appWindowConfig = app["window"] as? [String: Any] ?? [:]
+        return (pagePrivateConfig["screenShotForbidden"] as? Bool)
+            ?? (appWindowConfig["screenShotForbidden"] as? Bool)
+            ?? false
     }
 
     func getTabBarIndex(pagePath: String) -> Int {

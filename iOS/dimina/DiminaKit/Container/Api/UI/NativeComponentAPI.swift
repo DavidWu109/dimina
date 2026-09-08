@@ -65,7 +65,7 @@ public class NativeComponentAPI: DMPContainerApi {
     private static func handleComponent(apiName: String, param: DMPBridgeParam, env: DMPBridgeEnv) {
         let params = param.getMap()
         let type = params.getString(key: "type") ?? "native/video"
-        guard type == "native/video" || type == "native/map" else { return }
+        guard type == "native/video" || type == "native/map" || type == "native/webview" else { return }
 
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
               let webview = app.render?.getWebView(byId: env.webViewId) else {
@@ -143,7 +143,11 @@ private final class DMPIOSNativeComponentHost {
     private let overlayView = DMPPassthroughView()
     private var videos: [String: DMPIOSNativeVideoComponent] = [:]
     private var maps: [String: DMPIOSNativeMapComponent] = [:]
+    private var webviews: [String: DMPIOSNativeWebViewComponent] = [:]
     private var scrollObservation: NSKeyValueObservation?
+    private var boundsObservation: NSKeyValueObservation?
+
+    fileprivate var parentWebViewId: Int { webViewId }
 
     static func host(for webview: DMPWebview, app: DMPApp, webViewId: Int) -> DMPIOSNativeComponentHost {
         if let host = hosts[webViewId] {
@@ -176,28 +180,38 @@ private final class DMPIOSNativeComponentHost {
             scrollObservation = wkWebView.scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
                 self?.updateLayouts()
             }
+            boundsObservation = wkWebView.observe(\.bounds, options: [.new]) { [weak self] _, _ in
+                self?.updateLayouts()
+            }
         }
     }
 
     func handle(apiName: String, params: DMPMap) {
         guard let id = params.getString(key: "id"), !id.isEmpty else { return }
-        let type = params.getString(key: "type") ?? (maps[id] == nil ? "native/video" : "native/map")
+        let type = params.getString(key: "type")
+            ?? (maps[id] != nil ? "native/map" : (webviews[id] != nil ? "native/webview" : "native/video"))
         switch apiName {
         case "componentMount":
             if type == "native/map" {
                 mountMap(id: id, params: params)
+            } else if type == "native/webview" {
+                mountWebView(id: id, params: params)
             } else {
                 mountVideo(id: id, params: params)
             }
         case "propsUpdate":
             if type == "native/map" {
                 updateMap(id: id, params: params)
+            } else if type == "native/webview" {
+                updateWebView(id: id, params: params)
             } else {
                 updateVideo(id: id, params: params)
             }
         case "componentUnmount":
             if type == "native/map" || maps[id] != nil {
                 unmountMap(id: id)
+            } else if type == "native/webview" || webviews[id] != nil {
+                unmountWebView(id: id)
             } else {
                 unmountVideo(id: id)
             }
@@ -223,10 +237,14 @@ private final class DMPIOSNativeComponentHost {
 
     private func release() {
         scrollObservation = nil
+        boundsObservation = nil
         videos.values.forEach { $0.release() }
         videos.removeAll()
         maps.values.forEach { $0.release() }
         maps.removeAll()
+        webviews.values.forEach { $0.release() }
+        webviews.removeAll()
+        webview?.onNativeWebViewPresenceChanged?(false)
         overlayView.removeFromSuperview()
     }
 
@@ -276,10 +294,40 @@ private final class DMPIOSNativeComponentHost {
         map.view.removeFromSuperview()
     }
 
+    private func mountWebView(id: String, params: DMPMap) {
+        let component = webviews[id] ?? DMPIOSNativeWebViewComponent(id: id, host: self)
+        if webviews[id] == nil {
+            webviews[id] = component
+            overlayView.addSubview(component.view)
+            webview?.onNativeWebViewPresenceChanged?(true)
+        }
+        component.update(params)
+    }
+
+    private func updateWebView(id: String, params: DMPMap) {
+        if let component = webviews[id] {
+            component.update(params)
+        } else {
+            mountWebView(id: id, params: params)
+        }
+    }
+
+    private func unmountWebView(id: String) {
+        guard let component = webviews.removeValue(forKey: id) else { return }
+        component.release()
+        component.view.removeFromSuperview()
+        webview?.onNativeWebViewPresenceChanged?(!webviews.isEmpty)
+    }
+
     fileprivate func updateLayouts() {
         overlayView.frame = wkWebView?.bounds ?? .zero
         videos.values.forEach { $0.applyLastLayout() }
         maps.values.forEach { $0.applyLastLayout() }
+        webviews.values.forEach { $0.applyLastLayout() }
+    }
+
+    fileprivate var webViewContentFrame: CGRect {
+        DMPNativeWebViewPresentation.contentFrame(in: overlayView.bounds)
     }
 
     fileprivate func calculateLayout(_ params: DMPMap) -> CGRect? {
@@ -306,12 +354,241 @@ private final class DMPIOSNativeComponentHost {
         ])
         DMPChannelProxy.containerToRender(msg: msg, app: app, webViewId: webViewId)
     }
+
+    fileprivate func forwardEmbeddedWebViewMessage(_ value: Any) {
+        guard
+            let message = DMPNativeWebViewMessage.parse(value),
+            let app
+        else { return }
+
+        _ = DMPChannelProxy.messageHandler(
+            type: message.type,
+            body: DMPMap(message.body),
+            target: message.target,
+            app: app
+        )
+    }
 }
 
 private final class DMPPassthroughView: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
         return hitView === self ? nil : hitView
+    }
+}
+
+private final class DMPIOSNativeWebViewComponent: NSObject {
+    private static let messageHandlerName = "diminaEmbeddedWebView"
+
+    private weak var host: DMPIOSNativeComponentHost?
+    private let id: String
+    private let embeddedWebViewId = DMPIdProvider.generateWebViewId()
+    private let webView: WKWebView
+    private var lastParams: DMPMap?
+    private var currentSource = ""
+
+    var view: UIView { webView }
+
+    init(id: String, host: DMPIOSNativeComponentHost) {
+        self.id = id
+        self.host = host
+
+        let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = "dimina miniProgram"
+        if #available(iOS 14.0, *) {
+            configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        } else {
+            configuration.preferences.javaScriptEnabled = true
+        }
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: DMPNativeWebViewScript.bridge(handlerName: Self.messageHandlerName),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        super.init()
+
+        configuration.userContentController.add(self, name: Self.messageHandlerName)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.allowsBackForwardNavigationGestures = true
+        webView.clipsToBounds = true
+        #if DEBUG
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
+        #endif
+    }
+
+    func update(_ params: DMPMap) {
+        if let lastParams {
+            lastParams.merge(params)
+        } else {
+            lastParams = DMPMap(params.toDictionary())
+        }
+        guard let effectiveParams = lastParams else { return }
+
+        if let updatedSource = params.getString(key: "url") ?? params.getString(key: "src") {
+            effectiveParams.set("url", updatedSource)
+            effectiveParams.set("src", updatedSource)
+        }
+        applyLayout(effectiveParams)
+
+        let attributes = effectiveParams.getDict(key: "attributes") ?? [:]
+        let nextSource = params.getString(key: "url")
+            ?? params.getString(key: "src")
+            ?? effectiveParams.getString(key: "url")
+            ?? effectiveParams.getString(key: "src")
+            ?? attributes["src"] as? String
+            ?? ""
+        guard nextSource != currentSource else { return }
+
+        currentSource = nextSource
+        guard !nextSource.isEmpty, let url = URL(string: nextSource) else {
+            if !nextSource.isEmpty {
+                sendError(url: nextSource, description: "invalid web-view URL")
+            }
+            return
+        }
+        webView.load(URLRequest(url: url))
+    }
+
+    func applyLastLayout() {
+        if let lastParams {
+            applyLayout(lastParams)
+        }
+    }
+
+    func release() {
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: Self.messageHandlerName
+        )
+        webView.configuration.userContentController.removeAllUserScripts()
+    }
+
+    private func applyLayout(_ params: DMPMap) {
+        guard let frame = host?.webViewContentFrame else {
+            webView.isHidden = true
+            return
+        }
+        webView.frame = frame
+        webView.isHidden = params.getBool(key: "hidden") ?? false
+    }
+
+    private func injectMiniProgramEnvironment() {
+        guard let lastParams else { return }
+        let attributes = lastParams.getDict(key: "attributes") ?? [:]
+        let parentWebViewId = lastParams.getInt(key: "parentWebViewId")
+            ?? lastParams.getInt(key: "bridgeId")
+            ?? host?.parentWebViewId
+            ?? 0
+        let bootstrap = DMPNativeWebViewScript.bootstrap(
+            embeddedWebViewId: embeddedWebViewId,
+            parentWebViewId: parentWebViewId,
+            attributes: attributes
+        )
+        webView.evaluateJavaScript(bootstrap) { [weak self] _, _ in
+            guard
+                let self,
+                let javascript = attributes["javascript"] as? String,
+                !javascript.isEmpty
+            else { return }
+            self.webView.evaluateJavaScript(javascript)
+        }
+    }
+
+    private func sendError(url: String, description: String) {
+        host?.sendEvent("binderror", body: [
+            "id": id,
+            "url": url,
+            "fullUrl": webView.url?.absoluteString ?? url,
+            "errMsg": description,
+        ])
+    }
+
+    private func handleEmbeddedNativeAPI(_ message: DMPNativeWebViewMessage) -> Bool {
+        guard
+            message.target == "webview",
+            message.type == "invokeAPI",
+            let methodName = message.body["name"] as? String
+        else { return false }
+
+        let params = message.body["params"] as? [String: Any]
+        let callbackId = params?["success"] as? String
+        let arguments: [String: Any]
+        switch methodName {
+        case "getEnv":
+            arguments = ["data": ["miniprogram": true]]
+        case "getSystemInfo":
+            arguments = SystemAPI.getSystemInfo().toDictionary()
+        default:
+            return false
+        }
+
+        if let callbackId, !callbackId.isEmpty {
+            webView.evaluateJavaScript(
+                DMPNativeWebViewScript.callback(id: callbackId, arguments: arguments)
+            )
+        }
+        return true
+    }
+}
+
+extension DMPIOSNativeWebViewComponent: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        injectMiniProgramEnvironment()
+        host?.sendEvent("bindload", body: [
+            "id": id,
+            "src": webView.url?.absoluteString ?? currentSource,
+        ])
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        sendError(url: currentSource, description: error.localizedDescription)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        sendError(url: currentSource, description: error.localizedDescription)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webView.reload()
+    }
+}
+
+extension DMPIOSNativeWebViewComponent: WKUIDelegate {
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if navigationAction.targetFrame == nil,
+           let requestURL = navigationAction.request.url {
+            webView.load(URLRequest(url: requestURL))
+        }
+        return nil
+    }
+}
+
+extension DMPIOSNativeWebViewComponent: WKScriptMessageHandler {
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let parsedMessage = DMPNativeWebViewMessage.parse(message.body) else { return }
+        if !handleEmbeddedNativeAPI(parsedMessage) {
+            host?.forwardEmbeddedWebViewMessage(message.body)
+        }
     }
 }
 

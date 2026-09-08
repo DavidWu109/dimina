@@ -44,6 +44,8 @@ public class DMPApp {
     private var currentPageOrientation: DMPPageOrientation?
     private var pageOrientationOverrides: [Int: DMPPageOrientation] = [:]
     private var hasRequestedPageOrientation = false
+    private var currentScreenShotForbidden: Bool?
+    private let screenShotProtectionController = DMPScreenShotProtectionController()
 
     private lazy var navigator: DMPNavigator? = DMPNavigator(app: self)
 
@@ -275,6 +277,33 @@ public class DMPApp {
         }
     }
 
+    @MainActor
+    func applyScreenShotProtectionForCurrentPage() {
+        guard let pagePath = navigator?.getCurrentRoute()?.path else { return }
+        applyScreenShotProtection(for: pagePath)
+    }
+
+    @MainActor
+    func applyScreenShotProtection(for pagePath: String) {
+        guard !isDestroyed, !isExiting,
+              let navigationView = navigator?.navigationController?.view else {
+            return
+        }
+
+        let forbidden = bundleAppConfig?.isScreenShotForbidden(pagePath: pagePath) ?? false
+        guard currentScreenShotForbidden != forbidden else { return }
+        guard screenShotProtectionController.setProtected(forbidden, view: navigationView) else {
+            return
+        }
+        currentScreenShotForbidden = forbidden
+    }
+
+    @MainActor
+    private func resetScreenShotProtection() {
+        screenShotProtectionController.reset()
+        currentScreenShotForbidden = nil
+    }
+
     /// Begins the host transition away from this mini program.
     ///
     /// Host-owned UI state must be restored before the navigation or dismissal
@@ -287,6 +316,7 @@ public class DMPApp {
         guard !isDestroyed, !isExiting else { return }
         isExiting = true
         resetPageOrientationIfNeeded()
+        resetScreenShotProtection()
     }
 
     public func getCurrentWebViewId() -> Int {
@@ -818,6 +848,8 @@ public class DMPApp {
         hasRequestedPageOrientation = false
         currentPageOrientation = nil
         pageOrientationOverrides.removeAll()
+        let screenShotProtectionController = self.screenShotProtectionController
+        currentScreenShotForbidden = nil
         DMPLog.app.info("destroy, appId=\(appId)")
         reportTrackingEvent(.destroyed)
         navigator?.tearDownNavigation()
@@ -853,6 +885,9 @@ public class DMPApp {
             Task { @MainActor in
                 resetPageOrientation()
             }
+        }
+        Task { @MainActor in
+            screenShotProtectionController.reset()
         }
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)

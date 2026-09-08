@@ -12,7 +12,9 @@ public class DMPPageLifecycle {
         self.app = app
     }
         
+    @MainActor
     public func onShow(webviewId: Int) {
+        app.applyScreenShotProtectionForCurrentPage()
         let msg = DMPMap([
             "type": "pageShow",
             "body": [
