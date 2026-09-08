@@ -1,7 +1,7 @@
 <script setup>
 // 承载网页的容器
 // https://developers.weixin.qq.com/miniprogram/dev/component/web-view.html
-import { isDesktop, isIOS } from '@dimina/common'
+import { isDesktop } from '@dimina/common'
 import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
 
 const props = defineProps({
@@ -20,29 +20,6 @@ const url = computed(() => props.src
 const type = 'native/webview'
 const info = useInfo()
 const nativeEventOffs = []
-let mountedId = ''
-let syncFrameId = 0
-let lastRectKey = ''
-let resizeObserver
-
-function getRect() {
-	const element = rootRef.value
-	if (!element) return {}
-
-	const rect = element.getBoundingClientRect()
-	return {
-		left: rect.left,
-		top: rect.top,
-		width: rect.width,
-		height: rect.height,
-		pageLeft: rect.left + window.scrollX,
-		pageTop: rect.top + window.scrollY,
-		scrollX: window.scrollX,
-		scrollY: window.scrollY,
-		viewportWidth: window.innerWidth,
-		viewportHeight: window.innerHeight,
-	}
-}
 
 function getEventAttrs() {
 	const eventAttrs = {}
@@ -54,15 +31,12 @@ function getEventAttrs() {
 	return eventAttrs
 }
 
-function getNativeParams(id = props.id) {
+function getNativeParams() {
 	return {
 		type,
 		url: url.value,
 		src: url.value,
-		id,
-		parentWebViewId: info.bridgeId,
-		hidden: rootRef.value?.hasAttribute('hidden') || false,
-		rect: getRect(),
+		id: props.id,
 		attributes: {
 			moduleId: info.moduleId,
 			attrs: getEventAttrs(),
@@ -80,25 +54,9 @@ function getNativeParams(id = props.id) {
 	}
 }
 
-function invokeNative(apiName, id = props.id) {
+function invokeNative(apiName) {
 	if (isDesktop) return
-	invokeAPI(apiName, { bridgeId: info.bridgeId, params: getNativeParams(id) })
-}
-
-function scheduleSyncRect() {
-	if (!is || syncFrameId) return
-
-	syncFrameId = requestAnimationFrame(() => {
-		syncFrameId = 0
-		const rectKey = JSON.stringify({
-			...getRect(),
-			hidden: rootRef.value?.hasAttribute('hidden') || false,
-		})
-		if (rectKey === lastRectKey) return
-
-		lastRectKey = rectKey
-		invokeNative('propsUpdate', mountedId || props.id)
-	})
+	invokeAPI(apiName, { bridgeId: info.bridgeId, params: getNativeParams() })
 }
 
 function bindNativeEvent(nativeEvent, eventType, detailFactory = msg => msg) {
@@ -152,46 +110,18 @@ onMounted(() => {
 		url: msg.url,
 		fullUrl: msg.fullUrl,
 		id: msg.id,
-		errMsg: msg.errMsg,
 	}))
-	mountedId = props.id
-	lastRectKey = JSON.stringify({
-		...getRect(),
-		hidden: rootRef.value?.hasAttribute('hidden') || false,
-	})
-	invokeNative('componentMount', mountedId)
-
-	if (isIOS) {
-		window.addEventListener('resize', scheduleSyncRect)
-		window.addEventListener('scroll', scheduleSyncRect, true)
-		if (window.ResizeObserver && rootRef.value) {
-			resizeObserver = new ResizeObserver(scheduleSyncRect)
-			resizeObserver.observe(rootRef.value)
-		}
-	}
+	invokeNative('componentMount')
 })
 
 watch(
 	() => [props.id, url.value],
-	([newId, newUrl], [oldId, oldUrl]) => {
-		if (!mountedId || isDesktop) return
-		if (newId !== oldId) {
-			invokeNative('componentUnmount', oldId)
-			mountedId = newId
-			nextTick(() => invokeNative('componentMount', newId))
-		} else if (newUrl !== oldUrl) {
-			invokeNative('propsUpdate', newId)
-		}
-	},
+	() => invokeNative('propsUpdate'),
 )
 
 onBeforeUnmount(() => {
 	window.removeEventListener('message', handleDesktopMessage)
-	if (syncFrameId) cancelAnimationFrame(syncFrameId)
-	resizeObserver?.disconnect()
-	window.removeEventListener('resize', scheduleSyncRect)
-	window.removeEventListener('scroll', scheduleSyncRect, true)
-	invokeNative('componentUnmount', mountedId || props.id)
+	invokeNative('componentUnmount')
 	nativeEventOffs.splice(0).forEach(off => off())
 })
 </script>
