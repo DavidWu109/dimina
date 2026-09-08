@@ -4,11 +4,11 @@ import UIKit
 
 /// 采用 Expo 的安全输入框图层方案，在小程序受限页面展示期间保护所在窗口。
 /// 依赖系统安全输入框的绘制行为，不是 iOS 官方的任意视图防截屏 API。
-@MainActor
 final class DMPScreenShotProtectionController {
     private var canvas: DMPSecureWindowCanvas?
 
     @discardableResult
+    @MainActor
     func setProtected(_ protected: Bool, view: UIView) -> Bool {
         guard protected else {
             reset()
@@ -27,6 +27,7 @@ final class DMPScreenShotProtectionController {
         return true
     }
 
+    @MainActor
     func reset() {
         canvas?.restore()
         canvas = nil
