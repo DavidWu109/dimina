@@ -780,6 +780,7 @@ public class DMPApp {
     public func applyUpdate() async {
         let currentPage = navigator?.getCurrentRoute()
         let launchConfig = currentLaunchConfig
+        CanvasAPI.clearApp(appId)
         service?.destroy()
         await initService()
         await loadBundle()
@@ -863,6 +864,7 @@ public class DMPApp {
         LocalNetworkAPIManager.shared.clearApp(appId)
         ScreenAPIManager.shared.clearApp(appId)
         AudioAPI.clearApp(appId)
+        CanvasAPI.clearApp(appId)
         DMPFileUtil.removeFileURLScheme(forAppId: appId)
 
         // Clear WebView cache pool (execute on main thread)
