@@ -5,7 +5,13 @@ import MMKV
 import KurilUniversalKit
 
 public class AppConfigManager: DisposeBagProvider {
+    public struct PreviewAccess {
+        public let isAllowed: Bool
+        public let statusDescription: String?
+    }
+
     public static let shared = AppConfigManager()
+    private var previewAccessByAppId: [String: PreviewAccess] = [:]
     
     private init() {}
     
@@ -30,15 +36,27 @@ public class AppConfigManager: DisposeBagProvider {
                 Network.miniProgramLookupAppDetail(appId: appId, type: type)
                     .request()
                     .asObservable()
-                    .mapObject(to: KurilBaseResponse<MiniProgramInfo>.self)
                     .subscribe(onNext: { response in
-                        continuation.resume(returning: response.data)
+                        if type == "ex",
+                           let json = try? response.mapJSON() as? [String: Any],
+                           let data = json["data"] as? [String: Any] {
+                            self.previewAccessByAppId[appId] = PreviewAccess(
+                                isAllowed: data["hasPreviewPermission"] as? Bool ?? false,
+                                statusDescription: data["statusDescription"] as? String
+                            )
+                        }
+                        let result = response.mapObject(to: KurilBaseResponse<MiniProgramInfo>.self)
+                        continuation.resume(returning: result.data)
                     }, onError: { error in
                         continuation.resume(returning: nil)
                     })
                     .disposed(by: self.disposeBag)
             }
         }
+    }
+
+    public func previewAccess(appId: String) -> PreviewAccess? {
+        previewAccessByAppId[appId]
     }
         
     /// 获取本地已安装的小程序配置列表
