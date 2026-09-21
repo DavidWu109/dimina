@@ -208,6 +208,7 @@ public class DMPPageController: UIViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         app?.applyPageOrientation(for: pagePath, webViewId: webview.getWebViewId())
+        app?.commitPageOrientation(for: pagePath, webViewId: webview.getWebViewId(), page: self)
         app?.applyScreenShotProtection(for: pagePath)
         interactivePopTransitionInProgress = false
         navigator?.pageControllerDidAppear(self)

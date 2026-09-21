@@ -235,6 +235,36 @@ public class DMPApp {
         applyPageOrientation(orientation)
     }
 
+    /// Commits the orientation only after the page controller has appeared.
+    /// Preparation and commit are intentionally separate because navigation
+    /// transitions may call `viewWillAppear` more than once.
+    @MainActor
+    func commitPageOrientation(
+        for pagePath: String,
+        webViewId: Int? = nil,
+        page: AnyObject? = nil
+    ) {
+        let orientation = webViewId.flatMap { pageOrientationOverrides[$0] }
+            ?? bundleAppConfig?.getPageOrientation(pagePath: pagePath)
+            ?? .portrait
+        let pageToCommit = page ?? navigator?.getCurrentPageController()
+        guard !isDestroyed, !isExiting,
+              let pageToCommit else {
+            return
+        }
+
+        // A delayed viewDidAppear from an abandoned/cancelled transition must
+        // not overwrite the page that the navigator currently owns. This is
+        // checked before invoking the host callback because the callback is
+        // allowed to mutate application-level orientation state.
+        if let providedPage = page,
+           let currentPage = navigator?.getCurrentPageController(),
+           currentPage !== providedPage {
+            return
+        }
+        appConfig?.commitPageOrientation?(orientation, pageToCommit)
+    }
+
     /// Applies a dynamic `page-meta` override only when the originating page
     /// is still visible. Hidden pages must not rotate the active page.
     @MainActor
@@ -251,6 +281,7 @@ public class DMPApp {
 
         if let pagePath = navigator?.getCurrentRoute()?.path {
             applyPageOrientation(for: pagePath, webViewId: webViewId)
+            commitPageOrientation(for: pagePath, webViewId: webViewId)
         }
     }
 

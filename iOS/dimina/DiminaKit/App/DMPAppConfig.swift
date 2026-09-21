@@ -75,6 +75,14 @@ public struct DMPAppConfig : Identifiable {
     /// updating its application-level orientation mask and requesting rotation.
     public var setPageOrientation: (@MainActor (_ orientation: DMPPageOrientation) -> Void)?
 
+    /// Commits the resolved orientation after the page controller's own
+    /// `viewDidAppear`. The page object is an internal lifecycle token used
+    /// by hosts to reject stale asynchronous requests.
+    public var commitPageOrientation: (@MainActor (
+        _ orientation: DMPPageOrientation,
+        _ page: AnyObject
+    ) -> Void)?
+
     /// Restores the host orientation state captured before the mini program
     /// became active. Called when the app is destroyed after having requested
     /// at least one page orientation.
