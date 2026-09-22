@@ -4,7 +4,13 @@ import Foundation
 /** WeChat-compatible Bluetooth adapter and BLE central API bridge. */
 public final class BluetoothAPI: DMPContainerApi {
     private static func bridge(_ name: String, _ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult {
-        BluetoothAPIManager.shared.handle(name: name, data: param.getMap(), appId: env.appId, callback: callback)
+        BluetoothAPIManager.shared.handle(
+            name: name,
+            data: param.getMap(),
+            appId: env.appId,
+            appIndex: env.appIndex,
+            callback: callback
+        )
         return DMPAsyncResult()
     }
 
@@ -37,6 +43,7 @@ public final class BluetoothAPI: DMPContainerApi {
     @BridgeMethod("offBLEMTUChange") var offBLEMTUChange: DMPBridgeMethodHandler = { bridge("offBLEMTUChange", $0, $1, $2) }
     @BridgeMethod("isBluetoothDevicePaired") var isBluetoothDevicePaired: DMPBridgeMethodHandler = { bridge("isBluetoothDevicePaired", $0, $1, $2) }
     @BridgeMethod("makeBluetoothPair") var makeBluetoothPair: DMPBridgeMethodHandler = { bridge("makeBluetoothPair", $0, $1, $2) }
+    @BridgeMethod("createBLEPeripheralServer") var createBLEPeripheralServer: DMPBridgeMethodHandler = { bridge("createBLEPeripheralServer", $0, $1, $2) }
 }
 
 final class BluetoothAPIManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
@@ -70,11 +77,12 @@ final class BluetoothAPIManager: NSObject, CBCentralManagerDelegate, CBPeriphera
     private var characteristicListeners: [String: [String: DMPBridgeCallback]] = [:]
     private var mtuListeners: [String: [String: DMPBridgeCallback]] = [:]
 
-    func handle(name: String, data: DMPMap, appId: String, callback: DMPBridgeCallback?) {
+    func handle(name: String, data: DMPMap, appId: String, appIndex: Int, callback: DMPBridgeCallback?) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             switch name {
-            case "openBluetoothAdapter": self.open(data: data, appId: appId, callback: callback)
+            case "openBluetoothAdapter": self.open(data: data, appId: appId, appIndex: appIndex, callback: callback)
+            case "createBLEPeripheralServer": self.createPeripheral(appId: appId, appIndex: appIndex, callback: callback)
             case "closeBluetoothAdapter": self.close(appId: appId, callback: callback)
             case "getBluetoothAdapterState": self.adapterState(appId: appId, callback: callback)
             case "startBluetoothDevicesDiscovery": self.startDiscovery(data: data, appId: appId, callback: callback)
@@ -107,7 +115,13 @@ final class BluetoothAPIManager: NSObject, CBCentralManagerDelegate, CBPeriphera
         }
     }
 
-    private func open(data: DMPMap, appId: String, callback: DMPBridgeCallback?) {
+    private func open(data: DMPMap, appId: String, appIndex: Int, callback: DMPBridgeCallback?) {
+        checkBluetoothPermission(appIndex: appIndex, method: "openBluetoothAdapter", callback: callback) { [weak self] in
+            self?.openAfterPermission(data: data, appId: appId, callback: callback)
+        }
+    }
+
+    private func openAfterPermission(data: DMPMap, appId: String, callback: DMPBridgeCallback?) {
         if data.getString(key: "mode") == "peripheral" {
             fail("openBluetoothAdapter", callback, 10009, "peripheral mode is not supported")
             return
@@ -119,6 +133,37 @@ final class BluetoothAPIManager: NSObject, CBCentralManagerDelegate, CBPeriphera
             return
         }
         resolveOpen(appId: appId, callback: callback)
+    }
+
+    private func createPeripheral(appId: String, appIndex: Int, callback: DMPBridgeCallback?) {
+        checkBluetoothPermission(appIndex: appIndex, method: "createBLEPeripheralServer", callback: callback) { [weak self] in
+            self?.fail("createBLEPeripheralServer", callback, 10009, "peripheral mode is not supported")
+        }
+    }
+
+    private func checkBluetoothPermission(
+        appIndex: Int,
+        method: String,
+        callback: DMPBridgeCallback?,
+        allowed: @escaping () -> Void
+    ) {
+        guard let checker = DMPAppManager.sharedInstance().getApp(appIndex: appIndex)?.getAppConfig()?.checkPermission else {
+            allowed()
+            return
+        }
+        checker("scope.bluetooth") { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .allowed:
+                allowed()
+            case .scopeNotConfigured:
+                self.fail(method, callback, 10021, "the scope is not declared in the privacy agreement")
+            case .systemDenied:
+                self.fail(method, callback, 10001, "permission denied")
+            case .userDenied:
+                self.fail(method, callback, 10021, "permission denied")
+            }
+        }
     }
 
     private func resolveOpen(appId: String, callback: DMPBridgeCallback?) {

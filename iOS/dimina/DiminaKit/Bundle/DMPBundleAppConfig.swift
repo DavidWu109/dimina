@@ -21,6 +21,8 @@ public class DMPBundleAppConfig {
     public var tabBar: DMPTabBarConfig?
     /// Permission usage descriptions declared in app.json.
     public private(set) var permissionDescriptions: [String: String]
+    /// Permission scopes declared in app.json, including entries without desc.
+    public private(set) var permissionScopes: Set<String>
 
     init(data: [String: Any]) {
         self.data = data
@@ -35,6 +37,7 @@ public class DMPBundleAppConfig {
         self.window = self.app["window"] as? [String: Any]
         self.tabBar = DMPTabBarConfig(json: self.app["tabBar"] as? [String: Any])
         let permissions = self.app["permission"] as? [String: Any] ?? [:]
+        self.permissionScopes = Set(permissions.keys)
         self.permissionDescriptions = permissions.reduce(into: [:]) { result, item in
             guard let config = item.value as? [String: Any],
                   let description = config["desc"] as? String else { return }
